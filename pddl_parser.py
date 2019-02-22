@@ -1,0 +1,489 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Sun Dec 16 16:17:44 2018
+
+@author: Ale
+"""
+
+from utils import ischalnum, make_name, take_enclosed_data, dissect, remove_comments
+
+PDDLDIR = "pddl_files"
+UTILDIR = "utilities"
+PDDLDOM = "domain.pddl"
+PDDLPRB = "problem.pddl"
+MSGFILE = "messages.txt"
+PRDFILE = "predefined.txt"
+
+LENIENT = True
+PERMPUN = ['_', '-']
+
+
+def write_domain(file, domain_struct):
+    
+    f = open(file, 'w')
+    
+    
+    f.close()
+    
+    return  
+    
+def parse_element(element, arg_data, mode='domain'):
+    
+    lenient = arg_data['lenient']
+    
+    if mode == 'domain':
+        if element[:len("(domain")] == "(domain":
+            element2 = element[1:-1].strip()
+            elem_list = element2.split()
+            if len(elem_list) < 2:
+                print("\n[ERROR] Too few arguments in suspected domain element '", element + "'.\nDomain elements must have the format\n'domain domain_name'")
+                return False
+            elif len(elem_list) > 2:
+                print("\n[ERROR] Too many arguments in suspected domain element '", element + "'.\nDomain elements must have the format\n'domain domain_name'")
+                return False
+            arg_data['visited']['domain'].append('domain')
+            
+        elif element[:len("(:predicates")] == "(:predicates":
+            element2 = element[1:-1].strip()
+            elem_list = take_enclosed_data(element2)
+            elem_list = [element2.split()[0]] + elem_list
+            
+            if len(elem_list) < 2:
+                print("\n[ERROR] Too few arguments in suspected predicates element\n'" + element + "'.\nPredicates elements must have the format\n'predicates ([predicate1]) ([predicate2]) ... ([predicateN])'")
+                return False
+            if elem_list[0] != ":predicates":
+                first_statement = elem_list[0]
+                print("\n[ERROR] Suspected predicate argument does not begin with a ':predicate' statement. Predicates elements must have the format\n'predicates ([predicate1]) ([predicate2]) ... ([predicateN])'\nwhile the program detected\n" + first_statement + ".\nas first statement.\nPlease correct the typo if present or add the statement itself if not inserted at all.")
+                return False
+            if not 'domain' in arg_data['visited']['domain']:
+                print("\n[ERROR] Predicates argument found before the specification of the domain. Insert a domain statement with relative name first. The format of a domain file must be\n'(define (domain [name]) (:requirements :[requirement1] ... :[requirementN]) (:predicates [predicates1] ... [predicatesN]) (:action [action1] ...) ... (:action [actionN] ...))'")
+                return False
+            
+            predicates = []
+            for pred in elem_list:
+                pred = pred.strip()
+                if pred == ":predicates":
+                    continue
+                if ":" in pred:
+                    print("\n[ERROR] String containing ':predicates' detected in Arguments of the predicates element must have the format\n':predicates ([predicate1]) ([predicate2]) ... ([predicateN])'\nwhile the program detected\n" + pred + ".\nPlease enclose every single predicate between parentheses.")
+                    return False
+                if pred[-1] != ")":
+                    print("\n[ERROR] Arguments of the predicates element must have the format\n':predicates (predicate1) (predicate2) ... (predicateN)'\nwhile the program detected\n" + pred + ".\nPlease enclose every single predicate between parentheses.")
+                    return False
+                pred2 = pred[1:-1]
+                if "(" in pred2 or ")" in pred2:
+                    print("\n[ERROR] Parentheses detected in predicate \n'" + pred2 + "'\nParentheses are not allowed in the names of the parameter since they are used as separators.")
+                    return False
+                
+                predicates.append(pred2)
+            
+            preds_with_params = {}
+            for pred in predicates:
+                pred_split = pred.split()
+                pred_name = pred_split[0]
+                if pred_name in preds_with_params:
+                    if lenient:
+                        print("\n[WARNING] Detected the duplicate predicate \n'" + pred_name + "'\nDuplicate ignored")
+                        continue
+                    else:
+                        print("\n[ERROR] Detected the duplicate predicate \n'" + pred_name + "'\nPlease do not insert duplicate parameters in the domain.")
+                        return False
+                if not ischalnum(pred_name, PERMPUN) or pred_name[0].isnumeric():
+                    print("\n[ERROR] the first character of a predicate must be a letter, while\n" + str(pred_split[0][0]) + "\nwas detected in the predicate\n" + pred)
+                    return False
+                
+                pred_args = pred_split[1:]
+                for arg in pred_args:
+                    if arg[0] != "?":
+                        print("\n[ERROR] Arguments of a parameter must be signaled by a '?' as first character, while \n" + arg +"\nwas detected in the predicate\n" + pred)
+                        return False
+                preds_with_params[pred_name] = len(pred_args)
+            
+            arg_data['predicates'] = preds_with_params
+            arg_data['visited']['domain'].append('predicates')
+            
+        elif element[:len("(:requirements")] == "(:requirements":
+            
+            if element[-1] != ")":
+                print("\n[ERROR] Arguments of the requirements element must have the format\n':requirements :requirement1 :requirement2 ... :requirementN'\nwhile the program detected\n" + pred + ".\nPlease enclose every single predicate between parentheses.")
+                return False
+            
+            element = element[1:-1].strip()
+            
+            elem_list = element.split()
+            for idx, elem in enumerate(elem_list):
+                
+                elem_name = elem[1:]
+                
+                if elem[0] != ":":
+                    print("\n[ERROR] All parameters of requirement statement must be preceded by semicolon, while it was not detected in\n'" + elem + "'\n")
+                    return False
+                    
+                if elem_name == "requirements" and idx != 0:
+                    print("\n[ERROR] Element 'requirements' was found in a position\n" + str(idx) + "\ndifferent from 0 in element\n'" + element + "'\nA ':requirements' statement may only appear once to signal the beginning of the element.")
+                    return False
+                
+                if idx == 0 and elem_name != "requirements":
+                    print("\n[ERROR] First statement of a 'requirements' element must be ':reuirements', while it was\n'" + elem_name + "'\nin\n'" + element + "'\nPlease put a ':requirement' statement before any of the requirements.")
+                    return False
+                
+                if elem_name == "requirements":
+                    continue
+                
+                if elem_name not in arg_data['requirements_list']:
+                    print("\n[ERROR] Non-existant requirement\n'" + elem[1:] + "'\nwas passed. Make sure that the inserted name is correct.")
+                    return False
+                
+                arg_data['requirements'].append(elem_name)
+                
+            arg_data['visited']['domain'].append('requirements')
+            
+        elif element[:len("(:action")] == "(:action":
+            element2 = element[1:-1].strip()
+            
+            if "::" in element2:
+                print("\n[ERROR] Multiple consecutive colons detected in action\n'" + element + "'\nUse a single colon to identify the single components of an action element.")
+                return False
+            
+            if element2.split()[0] != ":action":
+                print("\n[ERROR] First instruction found in suspected action element was\n'" + element2.split()[0] + "'\nwhile it should have been\n':action'.\nAction element format must be\n':action [action_name] :precondition ([sequence_of_preconditions]) :effect ([series_of_effects])'")
+                return False
+            
+            elem_list = element2.split(":")
+            while '' in elem_list:
+                elem_list.remove('')
+                
+            if len(elem_list) > 4:
+                print("[ERROR] Too many elements preceded by a semicolon. An action must have the format\n':action [action_name] :precondition ([sequence_of_preconditions]) :effect ([series_of_effects])'")
+                return False
+            
+            action_struct = {}
+            visited_action_comps = []
+            
+            for elem in elem_list:
+                elem2 = elem.strip()
+                elem_name = elem2.split()[0]
+                    
+                if elem_name in visited_action_comps:
+                    if lenient:    
+                        print("\n[WARNING] Element\n'" + elem_name + "'\nhas already been encountered in this action. Skipping it.")
+                        return True
+                    else:    
+                        print("\n[ERROR] Element\n'" + elem_name + "'\nhas already been encountered in this action. Make sure to not repeat components of an action element.")
+                        return False
+                
+                if elem_name == "action":
+                    l = elem.split()
+                    
+                    if len(l) > 2:
+                        print("\n[ERROR] Element\n'" + elem2 + "'\nhas been identified as an action statement, but contains too many words.\nRemember that an action must be named using the format\n':action [name_without_spaces]'.")
+                        return lenient
+                    
+                    if l[1] in arg_data['domain']['actions']:
+                        print("\n[ERROR] Action\n'" + l[1] + "'\nwas defined multiple times.\nRemember that action names are exclusive and cannot be shared by multiple actions.")
+                        return lenient
+                    
+                    action_struct['name'] = l[1]
+                    visited_action_comps.append('action')
+                        
+                elif elem_name == "parameters":
+                    
+                    if 'action' not in visited_action_comps:
+                        print("\n[ERROR] Encountered a parameters definition without declaring the name of the action first in action\n'" + element + "'")
+                        return False
+                    
+                    elem3 = elem2.replace("parameters", '', 1).strip()
+                    out = take_enclosed_data(elem3, no_outliers=(not lenient))
+                    if type(out) != list:
+                        print("\n[ERROR] Out-of-parentheses character\n'" + out + "'\nidentified while parsing ':parameters' element\n':" + elem2 + "'\nThe required format is\n':parameters (?param1 ?param2 ... ?paramN)'\nMake sure that all of the parameters are included in the same set of parentheses.")
+                        return False
+                    
+                    action_struct['parameters'] = []
+                    
+                    out = out[0][1:-1]
+                    out = out.split()
+                    
+                    for param in out:
+                        if param[0] != '?':
+                            if not lenient:
+                                print("\n[ERROR] Parameter\n'" + param + "'\nis not preceded by a '?' symbol in action" + element + "'\nThe required format is\n':parameters (?param1 ?param2 ... ?paramN)'\nMake sure that all of the parameters are preceded by a '?' symbol.")
+                                return False
+                        
+                        if param[1:] in action_struct['parameters']:
+                            print("\n[WARNING] Parameter\n'" + param + "'\nwas declared more than once in action\n'" + action_struct['name'] + "'\nThe program will skip the repetitions.")
+                            continue
+                        
+                        action_struct['parameters'].append(param[1:])
+                    
+                        
+                    visited_action_comps.append('parameters')
+                        
+                elif elem_name == "precondition":
+                    
+                    if 'action' not in visited_action_comps:
+                        print("\n[ERROR] Encountered a precondition definition without declaring the name of the action first in action\n'" + element + "'")
+                        return False
+                    
+                    elem3 = elem2.replace("precondition", '', 1).strip()  
+                    
+                    out = dissect(elem3, arg_data)
+                    if not out:
+                        return False
+                    
+                    action_struct['precondition'] = elem3
+                    
+                elif elem_name == "effect":
+                    
+                    if 'action' not in visited_action_comps:
+                        print("\n[ERROR] Encountered an effect definition without declaring the name of the action first in action\n'" + element + "'")
+                        return False
+                    
+                    elem3 = elem2.replace("effect", '', 1).strip()  
+                    
+                    out = dissect(elem3, arg_data)
+                    if not out:
+                        return False
+                    
+                    action_struct['effect'] = elem3
+                
+                else:
+                    print("\n[ERROR] Unrecognised element\n'" + elem_name + "'\nin action\n'" + element + "'\nAction element format must be\n':action [action_name] :precondition ([sequence_of_preconditions]) :effect ([series_of_effects])'")
+                    return False
+                
+                visited_action_comps.append(elem_name)
+            
+            arg_data['domain']['actions'][action_struct['name']] = {}
+            for key in action_struct:
+                if key != 'name':
+                    arg_data['domain']['actions'][action_struct['name']][key] = action_struct[key]
+            
+    
+        else:
+            print("\n[ERROR] Unrecognised element\n'" + element + "'\nNo such element is part of a domain.")
+            return False
+    
+    elif mode == 'problem':
+        
+        if element[:len("(problem")] == "(problem":
+            element2 = element[1:-1].strip()
+            elem_list = element2.split()
+            if len(elem_list) != 2:
+                print("\n[ERROR] Suspected 'problem' element\n'" + element + "'\nhas\n" + str(len(elem_list)) + "\narguments, while\n2\nwere expected.\nProblem elements must have the format\n'problem problem_name'")
+            
+        elif element[:len("(:domain")] == "(:domain":
+            element2 = element[1:-1].strip()
+            elem_list = element2.split()
+            if len(elem_list) < 2:
+                print("\n[ERROR] Too few arguments in suspected 'domain' element '", element + "'.\nDomain elements must have the format\n'domain domain_name'")
+                return False
+            elif len(elem_list) > 2:
+                print("\n[ERROR] Too many arguments in suspected 'domain' element '", element + "'.\nDomain elements must have the format\n'domain domain_name'")
+                return False
+            arg_data['visited']['problem'].append('domain')
+            
+        elif element[:len("(:objects")] == "(:objects": 
+            element2 = element[1:-1].strip()
+            elem_list = element2.split()
+            if len(elem_list) < 2:
+                print("\n[ERROR] Too few arguments in suspected objects element '", element + "'.\nObjects elements must have the format\n':objects object1 ... objectN'")
+                return False
+            if elem_list[0] != ":objects":
+                print("\n[ERROR] First statement of a 'objects' element must be ':objects', while it was\n'" + elem_list[0] + "'\nin\n'" + element + "'\nPlease put a ':objects' statement before any of the objects.")
+                return False
+            
+            elem_list = elem_list[1:]
+            
+            for obj in elem_list:
+                if obj in arg_data['problem']['objects']:
+                    
+                    if lenient:
+                        print("\n[WARNING]  Object\n'", obj + "'\nwas already defined in this problem file.\nObjects elements must be declared only once.")
+                    
+                    else:
+                        print("\n[ERROR] Object\n'", obj + "'\nwas already defined in this problem file.\nObjects elements must be declared only once.")
+                        return False
+                    
+                elif obj in arg_data['requirements_list']+list(arg_data['predefined'].keys()):
+                    print("\n[ERROR] Object\n'", obj + "'\nhas an invalid name.\nDo not use names reserved for predefined operators or libraries.")
+                    return False
+                
+                elif not ischalnum(obj, PERMPUN) or obj[0].isnumeric():
+                    print("\n[ERROR] Object\n'", obj + "'\ncontains an invalid character.\nObject names may only contain numbers (albeit not in the first position) and letters, along with the characters\n" + str(PERMPUN) + "")
+                    return False
+                
+        elif element[:len("(:init")] == "(:init":
+            
+            element2 = element[1:-1].strip()
+            elem_list = element2.split()
+            
+            if elem_list[0] != ":init":
+                print("\n[ERROR] First statement of a ':init' element must be ':init', while it was\n'" + elem_list[0] + "'\nin\n'" + element + "'\nPlease put a ':init' statement before defining the starting conditions.")
+                return False
+            
+            element2 = element[1:-1].strip()        
+            elem3 = element2.replace(":init", '', 1).strip()  
+            
+            out = dissect(elem3, arg_data)
+            if not out:
+                return False
+                
+            arg_data['problem']['init'] = elem3
+        
+        elif element[:len("(:goal")] == "(:goal": 
+            element2 = element[1:-1].strip()
+            elem_list = element2.split()
+            
+            if elem_list[0] != ":goal":
+                print("\n[ERROR] First statement of a ':goal' element must be ':goal', while it was\n'" + elem_list[0] + "'\nin\n'" + element + "'\nPlease put a ':goal' statement before defining the goal of this problem.")
+                return False
+            
+            element2 = element[1:-1].strip()        
+            elem3 = element2.replace(":goal", '', 1).strip()  
+            
+            out = dissect(elem3, arg_data)
+            if not out:
+                return False
+                
+            arg_data['problem']['goal'] = elem3
+        
+        else:
+            print("\n[ERROR] Unrecognised element\n'" + element + "'\nNo such element is part of a problem.")
+            return False
+    else:
+        print("Unrecognized mode", mode)
+        return False
+
+    return True
+
+def parse_domain(domain, arg_data):
+    
+    par = 0
+    
+    subelements = []
+    
+    domain = domain.strip()
+    
+    if domain[0:8] != "(define ":
+        print("\n[ERROR] The domain was not formatted correctly; domains should begin with a '(define ' clause")
+        return False
+    if domain[-1] != ")":
+        print("\n[ERROR] Extra characters at the end of the domain, found\n'" + domain.split(")")[-1] + "'\nafter the last closed parenthesis. Please remove any trailing elements.")
+        return False
+    
+    n_domain = domain[8:-1].strip()
+    current_subs = ""
+    for char in n_domain:
+        if char == "(":
+            current_subs += char
+            par += 1
+        elif char == ")":
+            par -= 1
+            current_subs += char
+            if par == 0:
+                subelements.append(current_subs)
+                current_subs = ""
+        else:
+            if current_subs != "":
+                current_subs += char
+            else:
+                if char != " ":
+                    print("\n[ERROR] The out-of-element character\n'" + char + "'\nhas been identified.\nPlease enclose all elements of the domain within parentheses.")
+                    return False
+            
+    if par != 0:
+        print("\n[ERROR] Unclosed parentheses")
+        return False
+    
+    for i in subelements:
+        status = parse_element(i, arg_data, 'domain')
+        if not status:
+            print("\n\nExecution has terminated with an error.")
+            return False
+        
+    return True
+
+def parse_problem(problem, arg_data):
+            
+    problem = problem.strip()
+    
+    if problem[0:8] != "(define ":
+        print("\n[ERROR] The problem was not formatted correctly; domains should begin with a '(define ' clause")
+        return False
+    
+    if problem[-1] != ")":
+        print("\n[ERROR] Extra characters at the end of the problem, found\n'" + problem.split(")")[-1] + "'\nafter the last closed parenthesis. Please remove any trailing elements.")
+        return False
+    
+    n_problem = problem[8:-1].strip()
+    subelements = take_enclosed_data(n_problem, no_outliers=True)
+    if type(subelements) != list:
+        print("\n[ERROR] Out-of-element character\n'" + str(subelements) + "'\nhas been identified in the problem file.\nPlease enclose all elements of the problem within parentheses.")
+        return False
+    
+    
+    for se in subelements:
+        status = parse_element(se, arg_data, 'problem')
+        if not status:
+            print("\n\nExecution has terminated with an error.")
+            return False
+    
+    return True
+    
+def main():             
+    f = open(make_name([PDDLDIR, PDDLDOM]), 'r')
+    dom_list = f.readlines()
+    f.close()
+    
+    f = open(make_name([PDDLDIR, PDDLPRB]), 'r')
+    prb_list = f.readlines()
+    f.close()
+    
+    arg_data = {'requirements_list':['strips', 'equality', 'typing', 'adl'], 'visited':{'problem':[], 'domain':[]}}
+    arg_data['predefined'] = {}
+    arg_data['domain'] = {'requirements':[], 'actions':{}}
+    arg_data['problem'] = {'objects':[], 'init':'', 'goal':''}
+    arg_data['lenient'] = LENIENT
+    
+    f = open(make_name([UTILDIR, PRDFILE]), 'r')
+    predef = f.readlines()
+    f.close()
+    
+    for p in predef:
+        pp = p.split()
+        assert len(pp) == 4
+        arg_data['predefined'][pp[0]] = {'min':int(pp[1]), 'max':int(pp[2]), 'req':pp[3]}
+    
+    dom_string = ""
+    for s in dom_list:
+        dom_string += s
+    
+    dom_string = remove_comments(dom_string)
+        
+    dom_string = dom_string.replace("\n", " ").replace("\t", " ").strip()
+    
+    print("\nStarting PDDL domain parsing...")
+    
+    out = parse_domain(dom_string, arg_data)
+    if not out:
+        return
+    
+    print("\nParsing of the provided PDDL domain has terminated with success.\nStarting PDDL problem parsing...")
+    
+    prb_string = ""
+    for s in prb_list:
+        prb_string += s
+        
+    prb_string = remove_comments(prb_string)
+        
+    prb_string = prb_string.replace("\n", " ").replace("\t", " ").strip()
+
+    out = parse_problem(prb_string, arg_data)
+    if not out:
+        return
+    
+    print("\nParsing of the provided PDDL problem has terminated with success.\n")
+    print(arg_data)
+    
+if __name__ == "__main__":
+    main()
+
