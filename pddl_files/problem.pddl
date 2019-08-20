@@ -1,11 +1,11 @@
-(define
+(define ; the stuff
 	(problem first)
 	
-	(:domain switch)
+	(:domain gripper-strips)
 	
-	(:objects carrubio cassa)
+	(:objects box cassa)
 
-	(:init (and (light))
+	(:init (not (light)))
 
 	(:goal (light))
 )

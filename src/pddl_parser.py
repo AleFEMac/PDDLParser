@@ -5,14 +5,19 @@ Created on Sun Dec 16 16:17:44 2018
 @author: Ale
 """
 
+import os
 from utils import ischalnum, make_name, take_enclosed_data, dissect, remove_comments
+from cost_utils import get_cost, calculate_cost
 
-PDDLDIR = "pddl_files"
-UTILDIR = "utilities"
+PDDLDIR = r"..\pddl_files"
+UTILDIR = r"..\utilities"
+OUTDIR  = r"..\out"
 PDDLDOM = "domain.pddl"
 PDDLPRB = "problem.pddl"
 MSGFILE = "messages.txt"
 PRDFILE = "predefined.txt"
+ODOMFIL = "domain.pddl"
+OPRBFIL = "problem.pddl"
 
 LENIENT = True
 PERMPUN = ['_', '-']
@@ -20,12 +25,67 @@ PERMPUN = ['_', '-']
 
 def write_domain(file, domain_struct):
     
-    f = open(file, 'w')
+    domain = "(define (domain "
     
+    domain += domain_struct['name'] + ")\n\n\t"
+    domain += "(:predicates"
     
+    for pred in domain_struct['predicates']:
+        domain += " (" + pred
+        for arg in domain_struct['predicates'][pred]:
+            domain += " " + arg
+        domain += ")"
+    domain += ")\n"
+    
+    for action in domain_struct['actions']:
+        action_d = domain_struct['actions'][action]
+        domain += "\n\t(:action " + action + "\n\t\t"
+        
+        if 'parameters' in action_d:
+            domain += ":parameters ("
+            for par in action_d['parameters']:
+                domain += " " + par
+            domain += " )\n\t\t"
+        
+        if 'precondition' in action_d:
+            domain += ":precondition " + action_d['precondition'] + "\n\t\t"
+        
+        domain += ":effect " + action_d['effect'] + ")\n\t"       
+    
+    domain = domain[:-1] + ")"
+
+    f = open(file, 'w')        
+    f.write(domain)    
     f.close()
     
-    return  
+    return
+
+def write_problem(file, problem_struct):
+       
+    # Define instruction and problem name
+    problem = "(define (problem " + problem_struct['name'] + ")\n\n\t"
+    
+    # Domain this problem refers to
+    problem += "(:domain " + problem_struct['domain'] + "\n\n\t"
+    
+    # Objects
+    problem += "(:objects"
+    for obj in problem_struct['objects']:
+        problem += " " + obj
+    problem += "\n\n\t"
+    
+    # Problem initialization
+    problem += problem_struct['init'] + "\n\n\t"
+    
+    # Problem goal
+    problem += problem_struct['goal'] + "\n)"   
+    
+    # Save problem on file
+    f = open(file, 'w')    
+    f.write(problem)
+    f.close()
+    
+    return
     
 def parse_element(element, arg_data, mode='domain'):
     
@@ -42,6 +102,7 @@ def parse_element(element, arg_data, mode='domain'):
                 print("\n[ERROR] Too many arguments in suspected domain element '", element + "'.\nDomain elements must have the format\n'domain domain_name'")
                 return False
             arg_data['visited']['domain'].append('domain')
+            arg_data['domain']['name'] = elem_list[1]
             
         elif element[:len("(:predicates")] == "(:predicates":
             element2 = element[1:-1].strip()
@@ -97,9 +158,9 @@ def parse_element(element, arg_data, mode='domain'):
                     if arg[0] != "?":
                         print("\n[ERROR] Arguments of a parameter must be signaled by a '?' as first character, while \n" + arg +"\nwas detected in the predicate\n" + pred)
                         return False
-                preds_with_params[pred_name] = len(pred_args)
+                preds_with_params[pred_name] = pred_args
             
-            arg_data['predicates'] = preds_with_params
+            arg_data['domain']['predicates'] = preds_with_params
             arg_data['visited']['domain'].append('predicates')
             
         elif element[:len("(:requirements")] == "(:requirements":
@@ -245,6 +306,17 @@ def parse_element(element, arg_data, mode='domain'):
                         return False
                     
                     action_struct['effect'] = elem3
+                    
+                    cost = calculate_cost(elem3, arg_data)
+                    
+                    if cost == -1:
+                        print("\n[ERROR] Could not calculate cost of the action\n'" + action_struct['name'] + "'\nPlease correct the error, as every action must have a positive cost.")
+                        return False
+                    elif cost == -2:
+                        print("\n[ERROR] Action\n'" + action_struct['name'] + "'\nhad more than one specified cost. Actions must have one and only one cost definition.")
+                        return False
+                    
+                    action_struct['cost'] = cost
                 
                 else:
                     print("\n[ERROR] Unrecognised element\n'" + elem_name + "'\nin action\n'" + element + "'\nAction element format must be\n':action [action_name] :precondition ([sequence_of_preconditions]) :effect ([series_of_effects])'")
@@ -269,6 +341,8 @@ def parse_element(element, arg_data, mode='domain'):
             elem_list = element2.split()
             if len(elem_list) != 2:
                 print("\n[ERROR] Suspected 'problem' element\n'" + element + "'\nhas\n" + str(len(elem_list)) + "\narguments, while\n2\nwere expected.\nProblem elements must have the format\n'problem problem_name'")
+                return False
+            arg_data['problem']['name'] = elem_list[1]
             
         elif element[:len("(:domain")] == "(:domain":
             element2 = element[1:-1].strip()
@@ -279,9 +353,19 @@ def parse_element(element, arg_data, mode='domain'):
             elif len(elem_list) > 2:
                 print("\n[ERROR] Too many arguments in suspected 'domain' element '", element + "'.\nDomain elements must have the format\n'domain domain_name'")
                 return False
+            elif elem_list[1] != arg_data['domain']['name']:
+                print("\n[ERROR] The problem was created for a domain different from the one passed to the parser.\nExpected domain was\n'" + arg_data['domain']['name'] + "'\nwhile the problem requires a\n'" + elem_list[1] + "'\ndomain")
+                return False
+                
             arg_data['visited']['problem'].append('domain')
+            arg_data['problem']['domain'] = arg_data['domain']['name']
             
-        elif element[:len("(:objects")] == "(:objects": 
+        elif element[:len("(:objects")] == "(:objects":
+            
+            if 'domain' not in arg_data['problem']:
+                print("\n[ERROR] No domain specified.")
+                return False
+            
             element2 = element[1:-1].strip()
             elem_list = element2.split()
             if len(elem_list) < 2:
@@ -292,7 +376,7 @@ def parse_element(element, arg_data, mode='domain'):
                 return False
             
             elem_list = elem_list[1:]
-            
+                        
             for obj in elem_list:
                 if obj in arg_data['problem']['objects']:
                     
@@ -311,6 +395,8 @@ def parse_element(element, arg_data, mode='domain'):
                     print("\n[ERROR] Object\n'", obj + "'\ncontains an invalid character.\nObject names may only contain numbers (albeit not in the first position) and letters, along with the characters\n" + str(PERMPUN) + "")
                     return False
                 
+                arg_data['problem']['objects'].append(obj)
+                
         elif element[:len("(:init")] == "(:init":
             
             element2 = element[1:-1].strip()
@@ -321,12 +407,12 @@ def parse_element(element, arg_data, mode='domain'):
                 return False
             
             element2 = element[1:-1].strip()        
-            elem3 = element2.replace(":init", '', 1).strip()  
+            elem3 = element2.replace(":init", '', 1).strip()
             
             out = dissect(elem3, arg_data)
             if not out:
                 return False
-                
+                        
             arg_data['problem']['init'] = elem3
         
         elif element[:len("(:goal")] == "(:goal": 
@@ -372,7 +458,7 @@ def parse_domain(domain, arg_data):
     
     n_domain = domain[8:-1].strip()
     current_subs = ""
-    for char in n_domain:
+    for idx, char in enumerate(n_domain):
         if char == "(":
             current_subs += char
             par += 1
@@ -387,7 +473,7 @@ def parse_domain(domain, arg_data):
                 current_subs += char
             else:
                 if char != " ":
-                    print("\n[ERROR] The out-of-element character\n'" + char + "'\nhas been identified.\nPlease enclose all elements of the domain within parentheses.")
+                    print("\n[ERROR] The out-of-element character\n'" + char + "'\nin position\n"+ str(idx) +"\nhas been identified.\nPlease enclose all elements of the domain within parentheses.")
                     return False
             
     if par != 0:
@@ -438,7 +524,7 @@ def main():
     prb_list = f.readlines()
     f.close()
     
-    arg_data = {'requirements_list':['strips', 'equality', 'typing', 'adl'], 'visited':{'problem':[], 'domain':[]}}
+    arg_data = {'requirements_list':['strips', 'equality', 'typing', 'adl', 'action-costs'], 'visited':{'problem':[], 'domain':[]}}
     arg_data['predefined'] = {}
     arg_data['domain'] = {'requirements':[], 'actions':{}}
     arg_data['problem'] = {'objects':[], 'init':'', 'goal':''}
@@ -467,7 +553,7 @@ def main():
     if not out:
         return
     
-    print("\nParsing of the provided PDDL domain has terminated with success.\nStarting PDDL problem parsing...")
+    print("Parsing of the provided PDDL domain has terminated with success.\nStarting PDDL problem parsing...")
     
     prb_string = ""
     for s in prb_list:
@@ -481,8 +567,20 @@ def main():
     if not out:
         return
     
-    print("\nParsing of the provided PDDL problem has terminated with success.\n")
-    print(arg_data)
+    print(arg_data['domain'])
+    
+    for act in arg_data['domain']['actions']:
+        print(act)
+        print(arg_data['domain']['actions'][act])
+        print("\n")
+
+    print("Parsing of the provided PDDL problem has terminated with success.\n")
+    print("Saving new domain")
+    write_domain(os.path.join(OUTDIR, ODOMFIL), arg_data['domain'])
+    print("New domain saved")
+    print("\nSaving new problem")
+    write_problem(os.path.join(OUTDIR, OPRBFIL), arg_data['problem'])
+    print("New problem saved")
     
 if __name__ == "__main__":
     main()
