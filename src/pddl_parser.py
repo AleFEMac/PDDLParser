@@ -6,8 +6,10 @@ Created on Sun Dec 16 16:17:44 2018
 """
 
 import os
-from utils import ischalnum, make_name, take_enclosed_data, dissect, remove_comments
+import boolean as bb
+from utils import ischalnum, make_name, take_enclosed_data, dissect, remove_comments, printd
 from cost_utils import get_cost, calculate_cost
+from action_utils import check_action_precs, find_negatives, partition_recursively, classify_parameter, couple_params, assign_perms, find_min_empty, to_boolean, combine_actions
 
 PDDLDIR = r"..\pddl_files"
 UTILDIR = r"..\utilities"
@@ -21,6 +23,7 @@ OPRBFIL = "problem.pddl"
 
 LENIENT = True
 PERMPUN = ['_', '-']
+POSSCLASS = ['room', 'ball', 'gripper']
 
 
 def write_domain(file, domain_struct):
@@ -567,14 +570,125 @@ def main():
     if not out:
         return
     
-    print(arg_data['domain'])
-    
-    for act in arg_data['domain']['actions']:
-        print(act)
-        print(arg_data['domain']['actions'][act])
-        print("\n")
+# =============================================================================
+#     print(arg_data['domain'])
+#     
+#     for act in arg_data['domain']['actions']:
+#         print(act)
+#         print(arg_data['domain']['actions'][act])
+#         print("\n")
+# =============================================================================
 
     print("Parsing of the provided PDDL problem has terminated with success.\n")
+    
+    print("Merging actions...")
+    
+    ok_actions = []
+    
+    for act in arg_data['domain']['actions']:
+        ret = check_action_precs(arg_data['domain']['actions'][act])
+        if ret:
+            ok_actions.append(act)
+        else:
+            print("Precondition of action '" + act + "' is always false, the action has been removed")
+        
+    action_couples = []
+    
+    for act1 in ok_actions:
+        for act2 in ok_actions:
+            if act1 == act2:
+                continue
+            action_couples.append((act1, act2))
+    
+    poss_classes = POSSCLASS
+    
+    for coup in action_couples:
+        
+        act1 = arg_data['domain']['actions'][coup[0]].copy()
+        act2 = arg_data['domain']['actions'][coup[1]].copy()
+        
+        pp1 = partition_recursively(act1['precondition'])
+        pe1 = partition_recursively(act1['effect'])
+        
+        pp2 = partition_recursively(act2['precondition'])
+        pe2 = partition_recursively(act2['effect'])
+        
+        p1 = act1['parameters']
+        p2 = act2['parameters']
+        
+        pr1 = {}
+        pr2 = {}
+        
+        for p in act1['parameters']:
+            pr1[p] = classify_parameter('?'+p, pp1, poss_classes)
+        
+        for p in act2['parameters']:
+            pr2[p] = classify_parameter('?'+p, pp2, poss_classes) 
+        
+        fn = find_negatives(pe1, p1, poss_classes)
+        
+        for i in fn:
+            pr1[i[0]].remove(i[1])
+        
+        cp = couple_params(pr1, pr2)        
+        ap = assign_perms(cp)
+        
+        min_dict = find_min_empty(ap)
+        
+        par_dict = {}
+        act_new_pars = [{}, {}]
+        
+        idx = 0
+        for i in min_dict:
+            par_name = "par_" + str(idx)
+            par_dict[par_name] = [i]
+            act_new_pars[0][i] = par_name
+            if min_dict[i] != '':
+                par_dict[par_name].append(min_dict[i])
+                act_new_pars[1][min_dict[i]] = par_name
+            idx += 1
+        
+        
+        na1 = act1.copy()
+        na2 = act2.copy()
+        
+        nas = [na1, na2]
+        
+        for i, na in enumerate(nas):
+            na['precondition'] = na['precondition'].replace(')', ') ').replace('(', ' (')
+            na['effect'] = na['effect'].replace(')', ') ').replace('(', ' (')
+            for p in act_new_pars[i]:
+                na['precondition'] = na['precondition'].replace(str('?' + p), str('?' + act_new_pars[i][p]))
+                na['effect'] = na['effect'].replace(str('?' + p), str('?' + act_new_pars[i][p]))
+                
+        ba = bb.BooleanAlgebra()
+                
+        t1 = to_boolean(partition_recursively(na1['precondition'].replace('-', '___')))
+        t2 = to_boolean(partition_recursively(na1['effect'].replace('-', '___')))
+        t3 = to_boolean(partition_recursively(na2['precondition'].replace('-', '___')))
+        
+        ex1 = ba.parse('(' + t2 + ')' + ' & (' + t3 + ')').simplify()
+        ex2 = ba.parse('(' + t1 + ')' + ' & (' + t3 + ')').simplify()
+        
+        if ex1 == False or ex2 == False:
+            print("Actions '" + coup[0] + "' and '" + coup[1] + "' are incompatible")
+        
+        new_act = combine_actions(na1, na2, par_dict)
+        
+        idx = 1
+        new_name = str(coup[0]) + "_" + str(coup[1])
+        if str(new_name + str(idx)) in arg_data['domain']['actions']:
+            while str(new_name + str(idx)) in arg_data['domain']['actions']:
+                idx += 1
+            new_name += '_' + str(idx)
+        
+        arg_data['domain']['actions'][new_name] = new_act
+        
+    
+    
+    print(arg_data['domain']['actions'].keys())
+    
+    print("Action merging complete\n")
     print("Saving new domain")
     write_domain(os.path.join(OUTDIR, ODOMFIL), arg_data['domain'])
     print("New domain saved")

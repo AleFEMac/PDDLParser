@@ -5,6 +5,12 @@ Created on Fri Feb 15 12:14:58 2019
 @author: Ale
 """
 
+def printd(diction):
+    print("(\n")
+    for i in diction:
+        print(str(i) + ":", diction[i])
+    print(")")
+
 def ischalnum(string, puncts=['.']):
     for c in string:
         cc = ord(c)
