@@ -7,9 +7,9 @@ Created on Sun Dec 16 16:17:44 2018
 
 import os
 import boolean as bb
-from utils import ischalnum, make_name, take_enclosed_data, dissect, remove_comments, printd
+from utils import ischalnum, make_name, take_enclosed_data, dissect, remove_comments, printd, collection_copy
 from cost_utils import get_cost, calculate_cost
-from action_utils import check_action_precs, find_negatives, partition_recursively, classify_parameter, couple_params, assign_perms, find_min_empty, to_boolean, combine_actions
+from action_utils import check_action_precs, find_negatives, partition_recursively, classify_parameter, couple_params, assign_perms, find_min_empty, to_boolean, combine_actions, max_similitude_coup, check_action_compat
 
 PDDLDIR = r"..\pddl_files"
 UTILDIR = r"..\utilities"
@@ -47,7 +47,7 @@ def write_domain(file, domain_struct):
         if 'parameters' in action_d:
             domain += ":parameters ("
             for par in action_d['parameters']:
-                domain += " " + par
+                domain += " ?" + par
             domain += " )\n\t\t"
         
         if 'precondition' in action_d:
@@ -602,10 +602,13 @@ def main():
     
     poss_classes = POSSCLASS
     
+    merged_actions = {}
+    name_count = {x:0 for x in arg_data['domain']['actions']}
+    
     for coup in action_couples:
         
-        act1 = arg_data['domain']['actions'][coup[0]].copy()
-        act2 = arg_data['domain']['actions'][coup[1]].copy()
+        act1 = collection_copy(arg_data['domain']['actions'][coup[0]])
+        act2 = collection_copy(arg_data['domain']['actions'][coup[1]])
         
         pp1 = partition_recursively(act1['precondition'])
         pe1 = partition_recursively(act1['effect'])
@@ -633,60 +636,82 @@ def main():
         cp = couple_params(pr1, pr2)        
         ap = assign_perms(cp)
         
-        min_dict = find_min_empty(ap)
+        min_dict_list = max_similitude_coup(ap)
         
-        par_dict = {}
-        act_new_pars = [{}, {}]
+        par_dict_list = []
+        act_new_pars_list = []
         
-        idx = 0
-        for i in min_dict:
-            par_name = "par_" + str(idx)
-            par_dict[par_name] = [i]
-            act_new_pars[0][i] = par_name
-            if min_dict[i] != '':
-                par_dict[par_name].append(min_dict[i])
-                act_new_pars[1][min_dict[i]] = par_name
-            idx += 1
+        print("\n\n>>", min_dict_list)
+        print(">", coup)
         
-        
-        na1 = act1.copy()
-        na2 = act2.copy()
-        
-        nas = [na1, na2]
-        
-        for i, na in enumerate(nas):
-            na['precondition'] = na['precondition'].replace(')', ') ').replace('(', ' (')
-            na['effect'] = na['effect'].replace(')', ') ').replace('(', ' (')
-            for p in act_new_pars[i]:
-                na['precondition'] = na['precondition'].replace(str('?' + p), str('?' + act_new_pars[i][p]))
-                na['effect'] = na['effect'].replace(str('?' + p), str('?' + act_new_pars[i][p]))
-                
-        ba = bb.BooleanAlgebra()
-                
-        t1 = to_boolean(partition_recursively(na1['precondition'].replace('-', '___')))
-        t2 = to_boolean(partition_recursively(na1['effect'].replace('-', '___')))
-        t3 = to_boolean(partition_recursively(na2['precondition'].replace('-', '___')))
-        
-        ex1 = ba.parse('(' + t2 + ')' + ' & (' + t3 + ')').simplify()
-        ex2 = ba.parse('(' + t1 + ')' + ' & (' + t3 + ')').simplify()
-        
-        if ex1 == False or ex2 == False:
-            print("Actions '" + coup[0] + "' and '" + coup[1] + "' are incompatible")
-        
-        new_act = combine_actions(na1, na2, par_dict)
-        
-        idx = 1
-        new_name = str(coup[0]) + "_" + str(coup[1])
-        if str(new_name + str(idx)) in arg_data['domain']['actions']:
-            while str(new_name + str(idx)) in arg_data['domain']['actions']:
+        for ii, x in enumerate(min_dict_list):
+            
+            idx = 0
+            
+            aux1  = {}
+            aux2 = [{}, {}]
+            
+            pairing = min_dict_list[ii]
+            
+            for i in x:
+                par_name = "par_" + str(idx)
+                aux1[par_name] = [i]
+                aux2[0][i] = par_name
+                if pairing[i] != '':
+                    aux1[par_name].append(pairing[i])
+                    aux2[1][pairing[i]] = par_name
                 idx += 1
-            new_name += '_' + str(idx)
+            
+            for p in act2['parameters']:
+                if p not in aux2[1]:
+                    par_name = "par_" + str(idx)
+                    aux1[par_name] = [str(p)]
+                    aux2[1][str(p)] = par_name
+                    idx += 1
+                    
+            par_dict_list.append(aux1)
+            act_new_pars_list.append(aux2)
         
-        arg_data['domain']['actions'][new_name] = new_act
+        print(par_dict_list)
         
+        for idx in range(len(par_dict_list)):
+            
+            na1 = collection_copy(act1)
+            na2 = collection_copy(act2)
+            
+            act_new_pars = act_new_pars_list[idx]
+            
+            nas = [na1, na2]
+            
+            for i, na in enumerate(nas):        
+                na['precondition'] = na['precondition'].replace(')', ') ').replace('(', ' (')
+                na['effect'] = na['effect'].replace(')', ') ').replace('(', ' (')
+                for p in act_new_pars[i]:
+                    na['precondition'] = na['precondition'].replace(str('?' + p), str('?' + act_new_pars[i][p]))
+                    na['effect'] = na['effect'].replace(str('?' + p), str('?' + act_new_pars[i][p]))
+            
+            ba = bb.BooleanAlgebra()
+            
+            ret = check_action_compat(act1, act2, ba)
+            
+            if not ret:
+                print("Actions are incompatible")
+            
+            a12 = combine_actions(act1, act2, par_dict_list[ii])
+            name = str(coup[0]) + '_' + str(coup[1])
+            
+            if name in name_count:
+                name_count[name] += 1
+                name += '_' + str(name_count[name])
+            else:
+                name_count[name] = 0
+                
+            
+            merged_actions[name] = a12
     
-    
-    print(arg_data['domain']['actions'].keys())
+    for a in merged_actions:
+        arg_data['domain']['actions'][a] = merged_actions[a]
+        
     
     print("Action merging complete\n")
     print("Saving new domain")

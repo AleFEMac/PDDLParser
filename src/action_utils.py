@@ -5,8 +5,9 @@ Created on Wed Aug  7 09:24:47 2019
 @author: Ale
 """
 
-from utils import ischalnum, make_name, take_enclosed_data, dissect, printd
+from utils import ischalnum, make_name, take_enclosed_data, dissect, printd, collection_copy
 import boolean as bb
+import itertools
 
 # =============================================================================
 # Make couplings of the parameters from two different actions
@@ -15,8 +16,9 @@ def couple_params(ac1, ac2):
     
     matches = {}
     matched = []
-    
+
     for p in ac1:
+        matches[p] = []
         for pp in ac2:
             
 # =============================================================================
@@ -24,13 +26,35 @@ def couple_params(ac1, ac2):
 # if all of its tags are shared with the parameter of the first action
 # and vice versa            
 # =============================================================================
-            if pp not in matched and ac2[pp].issubset(ac1[p]) or ac1[p].issubset(ac2[pp]):
-                if p not in matches:
-                    matches[p] = []
+            if ac2[pp].issubset(ac1[p]):                    
                 matches[p].append(pp)
+                matched.append(pp)
+    
+    for pp in ac2:
+        if pp not in matched:
+            matches[pp] = []
                 
     return matches
 
+def check_action_compat(a1, a2, bool_alg=None):
+    
+    if bool_alg == None:
+        bool_alg = bb.BooleanAlgebra()      
+        
+    t1 = to_boolean(partition_recursively(a1['precondition'].replace('-', '___')))
+    t2 = to_boolean(partition_recursively(a1['effect'].replace('-', '___')))
+    t3 = to_boolean(partition_recursively(a2['precondition'].replace('-', '___')))
+    
+    ex1 = bool_alg.parse('(' + t2 + ')' + ' & (' + t3 + ')').simplify()
+    ex2 = bool_alg.parse('(' + t1 + ')' + ' & (' + t3 + ')').simplify()
+    
+    if not (ex1 != False and ex2 != False):
+        return False
+    else:
+        return True
+        
+        
+        
 def check_action_precs(act):
         
     ba = bb.BooleanAlgebra()
@@ -44,65 +68,58 @@ def combine_actions(a1, a2, par_dict):
     
     ea1 = a1['effect']
     ea2 = a2['effect']
+    tot_cost = a1['cost'] + a2['cost']
     
-    
-    pe1 = partition_recursively(ea1)
-    print("ea1:", pe1)
+    ne1 = compose_partition(partition_recursively(ea1))
+    ne2 = compose_partition(partition_recursively(ea2))
     
     a12 = {
         'parameters': list(par_dict.keys()),
         'precondition': a1['precondition'],
-        'effect': '(and (' + a1['effect'].replace("  ", " ") + " ) ( " + a2['effect'].replace("  ", " ") + " ) )",
-        'cost': a1['cost'] + a2['cost']
+        'effect': '(and (' + ne1.replace("  ", " ") + " ) ( " + ne2.replace("  ", " ") + " )" + "(increase (total-cost) " + str(tot_cost) + ") )",
+        'cost': tot_cost
     }
     
     return a12
 
 def assign_perms(level):
-        
-    lk = list(level.keys())
     
-    if len(lk) == 0:
-        return None
+    if len(level) == 0:
+        return [{}]
     
-    par = lk[0]
-    poss = []
+    level_copy = collection_copy(level)
     
-    if len(level[par]) > 0:
-        for x in level[par]:
-            cur = {}
-            
-            for j in lk[1:]:
-                aux = level[j].copy()
-                if x in level[j]:  
-                    aux.remove(x)
-                cur[j] = aux
-            
-            res = assign_perms(cur)
-            
-            if res != None:
-                for sub_dict in res:
-                    sub_dict[par] = x
-                    poss.append(sub_dict)
-            else:
-                poss.append({par:x})
-    else:
+    all_perms = []
+
+    level_copy = collection_copy(level)
+    
+    for par in level_copy:
         
-        cur = level.copy()
-        cur.pop(par)
+        par_level = collection_copy(level_copy)
+        cur_values = par_level.pop(par)
         
-        res = assign_perms(cur)
-            
-        if res != None:
-            for sub_dict in res:
-                sub_dict[par] = ''
-                poss.append(sub_dict)
+        if cur_values == []:
+                        
+            ret = assign_perms(par_level)            
+            for poss in ret:
+                poss[par] = ''
+                all_perms.append(poss)
+        
         else:
-            poss.append({par:''})
-                    
             
-    
-    return poss
+            for val in cur_values:
+                
+                val_level = collection_copy(par_level)
+                
+                for oth in val_level:
+                    if val in val_level[oth]:
+                        val_level[oth].remove(val)
+                
+                ret = assign_perms(val_level)
+                for poss in ret:
+                    poss[par] = val
+                    all_perms.append(poss)
+    return all_perms
 
 def partition_recursively(string, remove_increase=True):
     
@@ -151,7 +168,7 @@ def compose_partition(level):
         comp += "(not " + compose_partition(level[op][0]) + ")"
         return comp
     else:
-        comp += "(" + str(op)
+        comp += "(" + str(op) + ' '
         for arg in level[op]:
             comp += arg + ' '
         comp += ")"        
@@ -179,6 +196,24 @@ def classify_parameter(p, level, classes, neglevel=0):
             if found:
                 break
     return label
+
+
+def max_similitude_coup(ap):
+    
+    occ_dict = {}
+
+    for d in ap:
+        cur_empty = 0
+        for i in d:
+            if d[i] == '':
+                cur_empty += 1
+        if cur_empty not in occ_dict:
+            occ_dict[cur_empty] = []
+        if d not in occ_dict[cur_empty]:
+            occ_dict[cur_empty].append(d)
+    
+    return occ_dict[min(list(occ_dict.keys()))]
+
 
 def find_min_empty(ap):
     
@@ -257,7 +292,7 @@ def find_negatives(level, params, classes, neg=False):
 #       'cost': 3
 #       }
 # 
-# a2 = {
+# a3 = {
 #       'name':'drop',
 #       'parameters': ['obj', 'room', 'gripper'],
 #       'precondition': '(and (ball ?obj) (room ?room) (gripper ?gripper) (carry ?obj ?gripper) (at-robby ?room))',
@@ -265,7 +300,7 @@ def find_negatives(level, params, classes, neg=False):
 #       'cost': 1
 #       }
 # 
-# a3 = {
+# a2 = {
 #       'name':'move',
 #       'parameters': ['from', 'to'],
 #       'precondition': '(and (room ?from) (room ?to) (at-robby ?from))',
@@ -361,91 +396,98 @@ def find_negatives(level, params, classes, neg=False):
 # cp = couple_params(ac1, ac2)
 # print("cp:", cp)
 # 
-# ap = assign_perms(cp)
-# print("ap:", ap)
-# 
-# min_empty = len(ap[0])
-# min_dict = {}
-# 
-# for d in ap:
-#     cur_empty = 0
-#     for i in d:
-#         if d[i] == '':
-#             cur_empty += 1
-#     if cur_empty < min_empty:
-#         min_dict = d
-#         min_empty = cur_empty
+# eap = assign_perms(cp)
+# ap = []
+# for p in eap:
+#     if p not in ap:
+#         ap.append(p)
+# for p in ap:
+#     print("p:", p)
 # 
 # min_dict = find_min_empty(ap)
+# min_dicts = max_similitude_coup(ap)
 # 
 # print("md:", min_dict)
+# print("mds:", min_dicts)
 # 
 # print("=================")
 # 
-# par_dict = {}
-# act_new_pars = [{}, {}]
+# par_dict_list = []
+# act_new_pars_list = []
 # 
-# idx = 0
-# for i in min_dict:
-#     par_name = "par_" + str(idx)
-#     par_dict[par_name] = [i]
-#     act_new_pars[0][i] = par_name
-#     if min_dict[i] != '':
-#         par_dict[par_name].append(min_dict[i])
-#         act_new_pars[1][min_dict[i]] = par_name
-#     idx += 1
-# 
-# print("pd:", par_dict)
-# print("anp:", act_new_pars)
+# for ii, x in enumerate(min_dicts):
 #     
-# na1 = a1.copy()
-# na2 = a2.copy()
-# 
-# nas = [na1, na2]
-# 
-# for i, na in enumerate(nas):
-#     napa = [act_new_pars[i][x] for x in na['parameters']]
-#     na['precondition'] = na['precondition'].replace(')', ') ').replace('(', ' (')
-#     na['effect'] = na['effect'].replace(')', ') ').replace('(', ' (')
-#     for p in act_new_pars[i]:
-#         na['precondition'] = na['precondition'].replace(str('?' + p), str('?' + act_new_pars[i][p]))
-#         na['effect'] = na['effect'].replace(str('?' + p), str('?' + act_new_pars[i][p]))
-# 
-# print("=================")
-# 
-# ba = bb.BooleanAlgebra()
-# 
-# t1 = to_boolean(partition_recursively(a1['precondition'].replace('-', '___')))
-# t2 = to_boolean(partition_recursively(a1['effect'].replace('-', '___')))
-# t3 = to_boolean(partition_recursively(a2['precondition'].replace('-', '___')))
-# 
-# ex1 = ba.parse('(' + t2 + ')' + ' & (' + t3 + ')').simplify()
-# ex2 = ba.parse('(' + t1 + ')' + ' & (' + t3 + ')').simplify()
-# 
-# print("ex1:", ex1)
-# print("ex2:", ex2)
-# 
-# if ex1 == False or ex2 == False:
-#     print("Actions are incompatible")
+#     idx = 0
 #     
-# print("=================")
+#     aux1  = {}
+#     aux2 = [{}, {}]
+#     
+#     pairing = min_dicts[ii]
+#     
+#     for i in x:
+#         par_name = "par_" + str(idx)
+#         aux1[par_name] = [i]
+#         aux2[0][i] = par_name
+#         if pairing[i] != '':
+#             aux1[par_name].append(pairing[i])
+#             aux2[1][pairing[i]] = par_name
+#         idx += 1
+#     
+#     for p in a2['parameters']:
+#         if p not in aux2[1]:
+#             par_name = "par_" + str(idx)
+#             aux1[par_name] = str(p)
+#             aux2[1][str(p)] = par_name
+#             idx += 1
+#             
+#     par_dict_list.append(aux1)
+#     act_new_pars_list.append(aux2)
 # 
-# a12 = {
-#       'name':na1['name'] + '_' + na2['name'],
-#       'parameters': list(par_dict.keys()),
-#       'precondition': na1['precondition'],
-#       'effect': '(and (' + na1['effect'].replace("  ", " ") + " ) ( " + na2['effect'].replace("  ", " ") + " ) )",
-#       'cost': na1['cost'] + na2['cost']
-#       }
+# print("\n>pdl>", par_dict_list, "\n\n>anpl>", act_new_pars_list)
 # 
-# printd(a12)
-# 
-# print("=================")
-# 
-# tt = to_boolean(partition_recursively(a3['precondition'].replace('-', '___')))
-# 
-# if ba.parse(tt).simplify() == False:
-#     print("Action '" + a3['name'] + "' has conflicting preconditions and will be removed")
+# merged_actions = []
+# name_count = {}
 # 
 # 
+# for idx in range(len(par_dict_list)):
+#     
+#     na1 = collection_copy(a1)
+#     na2 = collection_copy(a2)
+#     
+#     act_new_pars = act_new_pars_list[idx]
+#     
+#     nas = [na1, na2]
+#     
+#     for i, na in enumerate(nas):        
+#         na['precondition'] = na['precondition'].replace(')', ') ').replace('(', ' (')
+#         na['effect'] = na['effect'].replace(')', ') ').replace('(', ' (')
+#         for p in act_new_pars[i]:
+#             na['precondition'] = na['precondition'].replace(str('?' + p), str('?' + act_new_pars[i][p]))
+#             na['effect'] = na['effect'].replace(str('?' + p), str('?' + act_new_pars[i][p]))
+#     
+#     ba = bb.BooleanAlgebra()
+#     
+#     ret = check_action_compat(a1, a2, ba)
+#     
+#     if not ret:
+#         print("Actions are incompatible")
+#     
+#     a12 = combine_actions(a1, a2, par_dict_list[ii])    
+#     name = na1['name'] + '_' + na2['name']
+#     
+#     if name in name_count:
+#         name_count[name] += 1
+#         a12['name'] = name + '_' + str(name_count[name])
+#     else:
+#         name_count[name] = 0
+#         a12['name'] = name
+#     
+#     merged_actions.append(a12)   
+#         
 # =============================================================================
+
+# =============================================================================
+# for ma in merged_actions:
+#     printd(ma)
+# =============================================================================
+

@@ -5,6 +5,25 @@ Created on Fri Feb 15 12:14:58 2019
 @author: Ale
 """
 
+def collection_copy(col):
+    
+    if type(col) == dict:
+        copy = {}
+        for c in col:
+            ret = collection_copy(col[c])
+            copy[c] = ret
+        return copy
+    
+    elif type(col) == list:
+        copy = []
+        for c in col:
+            ret = collection_copy(c)
+            copy.append(ret)
+        return copy
+    
+    else:
+        return col
+
 def printd(diction):
     print("(\n")
     for i in diction:
