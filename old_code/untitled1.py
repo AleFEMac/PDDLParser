@@ -98,6 +98,7 @@ import boolean as b
 l = [{'a':'A', 'b':'B'}, {'c':'C', 'a':'A'}]
 d = {'b':'B', 'a':'A'}
 
-print(d in l)
+a = "abc"
+print(a.replace("a","e"))
 
 

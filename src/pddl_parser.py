@@ -641,9 +641,6 @@ def main():
         par_dict_list = []
         act_new_pars_list = []
         
-        print("\n\n>>", min_dict_list)
-        print(">", coup)
-        
         for ii, x in enumerate(min_dict_list):
             
             idx = 0
@@ -671,8 +668,8 @@ def main():
                     
             par_dict_list.append(aux1)
             act_new_pars_list.append(aux2)
-        
-        print(par_dict_list)
+            
+            
         
         for idx in range(len(par_dict_list)):
             
@@ -684,20 +681,21 @@ def main():
             nas = [na1, na2]
             
             for i, na in enumerate(nas):        
-                na['precondition'] = na['precondition'].replace(')', ') ').replace('(', ' (')
-                na['effect'] = na['effect'].replace(')', ') ').replace('(', ' (')
+                na['precondition'] = na['precondition']
+                na['effect'] = na['effect']
                 for p in act_new_pars[i]:
                     na['precondition'] = na['precondition'].replace(str('?' + p), str('?' + act_new_pars[i][p]))
                     na['effect'] = na['effect'].replace(str('?' + p), str('?' + act_new_pars[i][p]))
+                
             
             ba = bb.BooleanAlgebra()
             
             ret = check_action_compat(act1, act2, ba)
             
             if not ret:
-                print("Actions are incompatible")
+                print("Actions", str(coup[0]), "and", str(coup[1]), "are incompatible")
             
-            a12 = combine_actions(act1, act2, par_dict_list[ii])
+            a12 = combine_actions(na1, na1, par_dict_list[ii])
             name = str(coup[0]) + '_' + str(coup[1])
             
             if name in name_count:

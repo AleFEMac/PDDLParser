@@ -75,7 +75,7 @@ def combine_actions(a1, a2, par_dict):
     
     a12 = {
         'parameters': list(par_dict.keys()),
-        'precondition': a1['precondition'],
+        'precondition': "(or (and " + a1['precondition'] + ' ' + a2['precondition'] + ") (and " + a1['effect'] + ' ' + a2['precondition'] + ") )",
         'effect': '(and (' + ne1.replace("  ", " ") + " ) ( " + ne2.replace("  ", " ") + " )" + "(increase (total-cost) " + str(tot_cost) + ") )",
         'cost': tot_cost
     }
