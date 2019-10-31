@@ -7,9 +7,10 @@ Created on Sun Dec 16 16:17:44 2018
 
 import os
 import boolean as bb
-from utils import ischalnum, make_name, take_enclosed_data, dissect, remove_comments, printd, collection_copy
-from cost_utils import get_cost, calculate_cost
-from action_utils import check_action_precs, find_negatives, partition_recursively, classify_parameter, couple_params, assign_perms, find_min_empty, to_boolean, combine_actions, max_similitude_coup, check_action_compat
+from utils import ischalnum, make_name, take_enclosed_data, dissect, remove_comments, collection_copy
+from cost_utils import calculate_cost
+from action_utils import check_action_precs, find_negatives, partition_recursively, classify_parameter, couple_params, assign_perms, combine_actions, max_similitude_coup, check_action_compat
+from parser_utils import write_domain, write_problem
 
 PDDLDIR = r"..\pddl_files"
 UTILDIR = r"..\utilities"
@@ -21,74 +22,11 @@ PRDFILE = "predefined.txt"
 ODOMFIL = "domain.pddl"
 OPRBFIL = "problem.pddl"
 
+can_write = False
 LENIENT = True
+HASCOST = False
 PERMPUN = ['_', '-']
 POSSCLASS = ['room', 'ball', 'gripper']
-
-
-def write_domain(file, domain_struct):
-    
-    domain = "(define (domain "
-    
-    domain += domain_struct['name'] + ")\n\n\t"
-    domain += "(:predicates"
-    
-    for pred in domain_struct['predicates']:
-        domain += " (" + pred
-        for arg in domain_struct['predicates'][pred]:
-            domain += " " + arg
-        domain += ")"
-    domain += ")\n"
-    
-    for action in domain_struct['actions']:
-        action_d = domain_struct['actions'][action]
-        domain += "\n\t(:action " + action + "\n\t\t"
-        
-        if 'parameters' in action_d:
-            domain += ":parameters ("
-            for par in action_d['parameters']:
-                domain += " ?" + par
-            domain += " )\n\t\t"
-        
-        if 'precondition' in action_d:
-            domain += ":precondition " + action_d['precondition'] + "\n\t\t"
-        
-        domain += ":effect " + action_d['effect'] + ")\n\t"       
-    
-    domain = domain[:-1] + ")"
-
-    f = open(file, 'w')        
-    f.write(domain)    
-    f.close()
-    
-    return
-
-def write_problem(file, problem_struct):
-       
-    # Define instruction and problem name
-    problem = "(define (problem " + problem_struct['name'] + ")\n\n\t"
-    
-    # Domain this problem refers to
-    problem += "(:domain " + problem_struct['domain'] + "\n\n\t"
-    
-    # Objects
-    problem += "(:objects"
-    for obj in problem_struct['objects']:
-        problem += " " + obj
-    problem += "\n\n\t"
-    
-    # Problem initialization
-    problem += problem_struct['init'] + "\n\n\t"
-    
-    # Problem goal
-    problem += problem_struct['goal'] + "\n)"   
-    
-    # Save problem on file
-    f = open(file, 'w')    
-    f.write(problem)
-    f.close()
-    
-    return
     
 def parse_element(element, arg_data, mode='domain'):
     
@@ -135,6 +73,9 @@ def parse_element(element, arg_data, mode='domain'):
                     print("\n[ERROR] Arguments of the predicates element must have the format\n':predicates (predicate1) (predicate2) ... (predicateN)'\nwhile the program detected\n" + pred + ".\nPlease enclose every single predicate between parentheses.")
                     return False
                 pred2 = pred[1:-1]
+                if pred2[0] == "(" and pred2[-1] == ')':
+                    print("\n[ERROR] Use of nested parentheses detected in\n'" + pred2 + "\nDo not use statements of the type (( xxx ))")
+                    return False
                 if "(" in pred2 or ")" in pred2:
                     print("\n[ERROR] Parentheses detected in predicate \n'" + pred2 + "'\nParentheses are not allowed in the names of the parameter since they are used as separators.")
                     return False
@@ -310,16 +251,17 @@ def parse_element(element, arg_data, mode='domain'):
                     
                     action_struct['effect'] = elem3
                     
-                    cost = calculate_cost(elem3, arg_data)
-                    
-                    if cost == -1:
-                        print("\n[ERROR] Could not calculate cost of the action\n'" + action_struct['name'] + "'\nPlease correct the error, as every action must have a positive cost.")
-                        return False
-                    elif cost == -2:
-                        print("\n[ERROR] Action\n'" + action_struct['name'] + "'\nhad more than one specified cost. Actions must have one and only one cost definition.")
-                        return False
-                    
-                    action_struct['cost'] = cost
+                    if HASCOST:
+                        cost = calculate_cost(elem3, arg_data)
+                        
+                        if HASCOST and cost == -1:
+                            print("\n[ERROR] Could not calculate cost of the action\n'" + action_struct['name'] + "'\nPlease correct the error, as every action must have a positive cost.")
+                            return False
+                        elif cost == -2:
+                            print("\n[ERROR] Action\n'" + action_struct['name'] + "'\nhad more than one specified cost. Actions must have one and only one cost definition.")
+                            return False
+                        
+                        action_struct['cost'] = cost
                 
                 else:
                     print("\n[ERROR] Unrecognised element\n'" + elem_name + "'\nin action\n'" + element + "'\nAction element format must be\n':action [action_name] :precondition ([sequence_of_preconditions]) :effect ([series_of_effects])'")
@@ -371,6 +313,8 @@ def parse_element(element, arg_data, mode='domain'):
             
             element2 = element[1:-1].strip()
             elem_list = element2.split()
+            elem_list = [x.strip() for x in elem_list]
+            
             if len(elem_list) < 2:
                 print("\n[ERROR] Too few arguments in suspected objects element '", element + "'.\nObjects elements must have the format\n':objects object1 ... objectN'")
                 return False
@@ -381,6 +325,7 @@ def parse_element(element, arg_data, mode='domain'):
             elem_list = elem_list[1:]
                         
             for obj in elem_list:
+                
                 if obj in arg_data['problem']['objects']:
                     
                     if lenient:
@@ -395,7 +340,7 @@ def parse_element(element, arg_data, mode='domain'):
                     return False
                 
                 elif not ischalnum(obj, PERMPUN) or obj[0].isnumeric():
-                    print("\n[ERROR] Object\n'", obj + "'\ncontains an invalid character.\nObject names may only contain numbers (albeit not in the first position) and letters, along with the characters\n" + str(PERMPUN) + "")
+                    print("\n[ERROR] Object\n'" + obj + "'\ncontains an invalid character.\nObject names may only contain numbers (albeit not in the first position) and letters, along with the characters\n" + str(PERMPUN) + "")
                     return False
                 
                 arg_data['problem']['objects'].append(obj)
@@ -480,7 +425,7 @@ def parse_domain(domain, arg_data):
                     return False
             
     if par != 0:
-        print("\n[ERROR] Unclosed parentheses")
+        print("\n[ERROR] Parsing reached its end while not closing all parentheses")
         return False
     
     for i in subelements:
@@ -569,15 +514,6 @@ def main():
     out = parse_problem(prb_string, arg_data)
     if not out:
         return
-    
-# =============================================================================
-#     print(arg_data['domain'])
-#     
-#     for act in arg_data['domain']['actions']:
-#         print(act)
-#         print(arg_data['domain']['actions'][act])
-#         print("\n")
-# =============================================================================
 
     print("Parsing of the provided PDDL problem has terminated with success.\n")
     
@@ -614,10 +550,8 @@ def main():
         pe1 = partition_recursively(act1['effect'])
         
         pp2 = partition_recursively(act2['precondition'])
-        pe2 = partition_recursively(act2['effect'])
         
         p1 = act1['parameters']
-        p2 = act2['parameters']
         
         pr1 = {}
         pr2 = {}
@@ -651,6 +585,7 @@ def main():
             pairing = min_dict_list[ii]
             
             for i in x:
+                
                 par_name = "par_" + str(idx)
                 aux1[par_name] = [i]
                 aux2[0][i] = par_name
@@ -658,6 +593,8 @@ def main():
                     aux1[par_name].append(pairing[i])
                     aux2[1][pairing[i]] = par_name
                 idx += 1
+                
+            
             
             for p in act2['parameters']:
                 if p not in aux2[1]:
@@ -665,7 +602,7 @@ def main():
                     aux1[par_name] = [str(p)]
                     aux2[1][str(p)] = par_name
                     idx += 1
-                    
+            
             par_dict_list.append(aux1)
             act_new_pars_list.append(aux2)
             
@@ -686,38 +623,36 @@ def main():
                 for p in act_new_pars[i]:
                     na['precondition'] = na['precondition'].replace(str('?' + p), str('?' + act_new_pars[i][p]))
                     na['effect'] = na['effect'].replace(str('?' + p), str('?' + act_new_pars[i][p]))
-                
-            
-            ba = bb.BooleanAlgebra()
-            
-            ret = check_action_compat(act1, act2, ba)
+                            
+            ret = check_action_compat(act1, act2)
             
             if not ret:
                 print("Actions", str(coup[0]), "and", str(coup[1]), "are incompatible")
             
-            a12 = combine_actions(na1, na1, par_dict_list[ii])
+            a12 = combine_actions(na1, na1, par_dict_list[ii], HASCOST)
             name = str(coup[0]) + '_' + str(coup[1])
             
             if name in name_count:
                 name_count[name] += 1
                 name += '_' + str(name_count[name])
             else:
-                name_count[name] = 0
-                
+                name_count[name] = 0                
             
             merged_actions[name] = a12
-    
+        
     for a in merged_actions:
         arg_data['domain']['actions'][a] = merged_actions[a]
         
     
-    print("Action merging complete\n")
-    print("Saving new domain")
-    write_domain(os.path.join(OUTDIR, ODOMFIL), arg_data['domain'])
-    print("New domain saved")
-    print("\nSaving new problem")
-    write_problem(os.path.join(OUTDIR, OPRBFIL), arg_data['problem'])
-    print("New problem saved")
+    print("Action merging complete\n")    
+    if can_write:
+        print("Saving new domain")
+        write_domain(os.path.join(OUTDIR, ODOMFIL), arg_data['domain'])
+        print("New domain saved")
+
+        print("\nSaving new problem")
+        write_problem(os.path.join(OUTDIR, OPRBFIL), arg_data['problem'])
+        print("New problem saved")
     
 if __name__ == "__main__":
     main()

@@ -1,10 +1,10 @@
-(define (problem first)
+(define (problem strips-gripper2)
 
-	(:domain gripper-strips
+	(:domain gripper-strips)
 
-	(:objects box cassa
+	(:objects rooma roomb ball1 ball2 left right)
 
-	(not (light))
+	(:init (room rooma)    (room roomb)   (ball ball1)   (ball ball2)   (gripper left)   (gripper right)   (at-robby rooma)   (free left)   (free right)   (at ball1 rooma)   (at ball2 rooma))
 
-	(light)
+	(:goal (at ball1 roomb))
 )

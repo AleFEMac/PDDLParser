@@ -25,7 +25,7 @@ def collection_copy(col):
         return col
 
 def printd(diction):
-    print("(\n")
+    print("(")
     for i in diction:
         print(str(i) + ":", diction[i])
     print(")")
@@ -33,7 +33,8 @@ def printd(diction):
 def ischalnum(string, puncts=['.']):
     for c in string:
         cc = ord(c)
-        if not ((cc >= 65 and cc <= 90) or (cc >= 97 and cc <= 122) or c in puncts):
+        if not ((cc >= 48 and cc <= 57) or (cc >= 65 and cc <= 90) or (cc >= 97 and cc <= 122) or c in puncts):
+            print(cc)
             return False
     return True
 
@@ -72,7 +73,12 @@ def check_correctness(data, params):
     if data.count('(') != data.count(')'):
         return False   
     
-    inside = data[1:-1]
+    inside = data[1:-1].strip()
+    
+    if inside[0] == '(' and inside[-1] == ')':
+        print("\n[ERROR] Use of nested parentheses detected in\n'" + data + "\nDo not use statements of the type (( xxx ))")
+        return False
+    
     name = inside.split()[0]
     
     if data.count('(') == 1 and data.count(')') == 1:
@@ -145,13 +151,26 @@ def remove_comments(string, comment_char=';'):
         string = string.replace(comment[:-1], '')
         
     return string
+    
+def align(cols):
+    
+    assert type(cols) == list
+    
+    if len(cols) == 0:  # Base step
+        return [[]]
+    else:               # Recursive step
+        res = []
+        ccols = collection_copy(cols)   # Collection copy        
+        cur = ccols[0]                  # Current item to align  
+        ret = align(ccols[1:])          # Recursion
+        
+        # Take every item from the current collection and append it to
+        # every result collection from the recursive operation
+        for c in cur:
+            for c1 in ret:
+                aux = c1 + [c]
+                res.append(aux)
+        
+        return res
 
-def check_parameter_pred(par1, actions):
-    labels = []
-    for action in actions:
-        pass
-    
-    
-    
-    
-    
+print(align([[1]]))

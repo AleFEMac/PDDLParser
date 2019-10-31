@@ -87,18 +87,7 @@ import boolean as b
 # print("c2", classes2)
 # =============================================================================
 
-# =============================================================================
-# ba = b.BooleanAlgebra()
-# ex = ba.parse('x & !x')
-# r = ex.simplify()
-# print(type(r))
-# print(r == False)
-# =============================================================================
-
-l = [{'a':'A', 'b':'B'}, {'c':'C', 'a':'A'}]
-d = {'b':'B', 'a':'A'}
-
-a = "abc"
-print(a.replace("a","e"))
-
-
+ba = b.BooleanAlgebra()
+ex = ba.parse('((!(x)))')
+r = ex.simplify()
+print(r)
