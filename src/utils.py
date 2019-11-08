@@ -172,5 +172,3 @@ def align(cols):
                 res.append(aux)
         
         return res
-
-print(align([[1]]))

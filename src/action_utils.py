@@ -170,21 +170,49 @@ def compose_partition(level):
         comp += ")"        
         return comp
 
+def classify_parameter_v2(param, exprs, classes=[]):
+    
+    for exp in exprs:                       # Cycle on the OR-separated statements                
+        
+        for item in exp:                    # Cycle on every item of a statement
+            
+            # Get predicate/operator, there is only one per dictionary
+            key = list(level.keys())[0]     
+            
+            if key == 'not':                # NOT operator case
+            
+    return
+
+# =============================================================================
+# TO BE SCRAPPED
+# =============================================================================
 def classify_parameter(p, level, classes=[], neglevel=0):
     
     assert p[0] == '?'
     
+    # Set of labels possessed by the parameter on this level
     label = set()
     
+    # Check every argument of the current operator
     for i in level:
-        found = False
-        ii = level[i]
-        for j in ii:
+        found = False           # Variable to record if the parameter was found
+        ii = level[i]           # Check the contents of the argument
+        for j in ii:            # Check all of said contents (sub-arguments)
+            
+            # If the sub-argument is not a dictionary, it must be a predicate
             if type(j) != dict:
-                if j == p and len(ii) == 1 and neglevel%2==0 and (classes == [] or i in classes):
+                
+                # Check if one of the sub-argument is the parameter we were
+                # looking for, it was the only sub-argument, it's not being
+                # negated and either it's one of the desired classes or there
+                # are no desired classes
+                if j == p and len(ii) == 1 and neglevel%2 == 0 and (classes == [] or i in classes):
                     label.add(i)
                     found = True
                     break
+            
+            # If the sub-argument is a dictionary, it must be an AND, OR, NOT
+            # statement
             else:
                 out = classify_parameter(p, j, classes)
                 label |= out
@@ -192,7 +220,9 @@ def classify_parameter(p, level, classes=[], neglevel=0):
             if found:
                 break
     return label
-
+# =============================================================================
+# 
+# =============================================================================
 
 def max_similitude_coup(ap):
     
@@ -356,22 +386,12 @@ def toDNF(level, params={}):
         # Deep copy of collection returned from successive recursive step
         res_og = toDNF(a, params)
         res = collection_copy(res_og)
-        
-        
-# =============================================================================
-#         for r in res:
-#             new_lvl.append(collection_copy(lvl)+r)
-#         lvl = new_lvl     
-# =============================================================================
-        
+                
         pos_al = align(res)
-        print(">>>", pos_al)
         neg_al = []
         for p in pos_al:
             neg = apply_negative(p)
             neg_al.append(neg)
-        
-        
         
         return neg_al
         
@@ -385,10 +405,43 @@ def toDNF(level, params={}):
 # TESTING PORTION
 # =============================================================================
 
-# =============================================================================
-# pr1 = "(or (and (room ?par_0) (room ?par_1) (at-robby ?par_0)) (and (and (at-robby ?par_1) (not (at-robby ?par_0))) (and (room ?par_0) (room ?par_1) (at-robby ?par_0))) )"
-# pp1 = partition_recursively(pr1)
-# a = toDNF(pp1)
-# for i in a:
-#     print(">", i, len(i))
-# =============================================================================
+
+actions = {
+        'move': {'parameters': ['from', 'to'], 
+                 'precondition': '(and (room ?from) (room ?to) (at-robby ?from))', 
+                 'effect': '(and (at-robby ?to) (not (at-robby ?from)))'}, 
+        'pick': {'parameters': ['obj', 'room', 'gripper'], 
+                 'precondition': '(and (ball ?obj) (room ?room) (gripper ?gripper) (at ?obj ?room) (at-robby ?room) (free ?gripper))', 
+                 'effect': '(and (carry ?obj ?gripper) (not (at ?obj ?room)) (not (free ?gripper)))'}, 
+        'drop': {'parameters': ['obj', 'room', 'gripper'], 
+                 'precondition': '(and (ball ?obj) (room ?room) (gripper ?gripper) (carry ?obj ?gripper) (at-robby ?room))', 
+                 'effect': '(and (at ?obj ?room) (free ?gripper) (not (carry ?obj ?gripper)))'}
+        }
+
+pr1 = partition_recursively(actions['drop']['precondition'])
+pr2 = partition_recursively(actions['pick']['precondition'])
+ef1 = partition_recursively(actions['drop']['precondition'])
+ef2 = partition_recursively(actions['pick']['precondition'])
+
+p1 = toDNF(pr1)
+p2 = toDNF(pr2)
+e1 = toDNF(ef1)
+e2 = toDNF(ef2)
+
+print("p1", p1)
+print("p2", p2)
+print("e1", e1)
+print("e2", e2)
+
+poss_classes = ['room', 'ball', 'gripper']
+
+
+
+pr1 = "(or (and (room ?par_0) (room ?par_1) (at-robby ?par_0)) (and (and (at-robby ?par_1) (not (at-robby ?par_0))) (and (room ?par_0) (room ?par_1) (at-robby ?par_0))) )"
+pp1 = partition_recursively(pr1)
+pe1 = "(and (and (at-robby ?par_1 ) (not (at-robby ?par_0 )) )   (and (at-robby ?par_1 ) (not (at-robby ?par_0 )) ) )"
+pq1 = partition_recursively(pe1)
+a = toDNF(pp1)
+e = toDNF(pq1)
+
+
