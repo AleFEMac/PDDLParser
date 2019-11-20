@@ -170,23 +170,40 @@ def compose_partition(level):
         comp += ")"        
         return comp
 
-def classify_parameter_v2(param, exprs, classes=[]):
+def classify_parameter(param, exprs, classes=[]):
+    
+    if param[0] == '?':
+        param = param[1:]
+    
+    param_classes = set()
     
     for exp in exprs:                       # Cycle on the OR-separated statements                
         
         for item in exp:                    # Cycle on every item of a statement
-            
+                        
             # Get predicate/operator, there is only one per dictionary
-            key = list(level.keys())[0]     
+            key = list(item.keys())[0]     
             
             if key == 'not':                # NOT operator case
+                
+                kkey = item[key][0]         # Take the class being NOT-ed
+                
+                # It's an acceptable class
+                if kkey in classes:
+                    param_classes.add(kkey) # Add the class to the set
             
-    return
+            else:
+                
+                # It's an acceptable class
+                if key in classes:                
+                    param_classes.add(key)           
+                    
+    return param_classes
 
 # =============================================================================
 # TO BE SCRAPPED
 # =============================================================================
-def classify_parameter(p, level, classes=[], neglevel=0):
+def classify_parameter_old(p, level, classes=[], neglevel=0):
     
     assert p[0] == '?'
     
@@ -324,7 +341,7 @@ def apply_negative(col):
         if op == 'not':
             res.append(c[op])
         else:
-            res.append({'not':[c[op]]})
+            res.append({'not':{op:c[op]}})
         
     return res 
         
@@ -386,7 +403,7 @@ def toDNF(level, params={}):
         # Deep copy of collection returned from successive recursive step
         res_og = toDNF(a, params)
         res = collection_copy(res_og)
-                
+        
         pos_al = align(res)
         neg_al = []
         for p in pos_al:
@@ -407,6 +424,9 @@ def toDNF(level, params={}):
 
 
 actions = {
+        'test': {'parameters': ['p1', 'p2'], 
+                 'precondition': '(not (and (pr1 p1) (pr2 p1 p2)))', 
+                 'effect': '(and (at-robby ?to) (not (at-robby ?from)))'}, 
         'move': {'parameters': ['from', 'to'], 
                  'precondition': '(and (room ?from) (room ?to) (at-robby ?from))', 
                  'effect': '(and (at-robby ?to) (not (at-robby ?from)))'}, 
@@ -418,10 +438,10 @@ actions = {
                  'effect': '(and (at ?obj ?room) (free ?gripper) (not (carry ?obj ?gripper)))'}
         }
 
-pr1 = partition_recursively(actions['drop']['precondition'])
+pr1 = partition_recursively(actions['test']['precondition'])
 pr2 = partition_recursively(actions['pick']['precondition'])
-ef1 = partition_recursively(actions['drop']['precondition'])
-ef2 = partition_recursively(actions['pick']['precondition'])
+ef1 = partition_recursively(actions['test']['effect'])
+ef2 = partition_recursively(actions['pick']['effect'])
 
 p1 = toDNF(pr1)
 p2 = toDNF(pr2)
@@ -429,19 +449,31 @@ e1 = toDNF(ef1)
 e2 = toDNF(ef2)
 
 print("p1", p1)
-print("p2", p2)
-print("e1", e1)
-print("e2", e2)
+# =============================================================================
+# print("p2", p2)
+# print("e1", e1)
+# print("e2", e2)
+# =============================================================================
 
-poss_classes = ['room', 'ball', 'gripper']
+# =============================================================================
+# poss_classes = ['obj', 'ball', 'gripper']
+# 
+# 
+# 
+# pr1 = "(or (and (room ?par_0) (room ?par_1) (at-robby ?par_0)) (and (and (at-robby ?par_1) (not (at-robby ?par_0))) (and (room ?par_0) (room ?par_1) (at-robby ?par_0))) )"
+# pp1 = partition_recursively(pr1)
+# pe1 = "(and (and (at-robby ?par_1 ) (not (at-robby ?par_0 )) )   (and (at-robby ?par_1 ) (not (at-robby ?par_0 )) ) )"
+# pq1 = partition_recursively(pe1)
+# a = toDNF(pp1)
+# e = toDNF(pq1)
+# 
+# print("\na", a)
+# =============================================================================
 
-
-
-pr1 = "(or (and (room ?par_0) (room ?par_1) (at-robby ?par_0)) (and (and (at-robby ?par_1) (not (at-robby ?par_0))) (and (room ?par_0) (room ?par_1) (at-robby ?par_0))) )"
-pp1 = partition_recursively(pr1)
-pe1 = "(and (and (at-robby ?par_1 ) (not (at-robby ?par_0 )) )   (and (at-robby ?par_1 ) (not (at-robby ?par_0 )) ) )"
-pq1 = partition_recursively(pe1)
-a = toDNF(pp1)
-e = toDNF(pq1)
-
+# =============================================================================
+# tt = '?par_0'
+# pc = classify_parameter(tt, a, poss_classes)
+# print(pc)
+# 
+# =============================================================================
 
