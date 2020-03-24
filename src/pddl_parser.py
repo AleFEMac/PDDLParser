@@ -9,7 +9,7 @@ import os
 import boolean as bb
 from utils import ischalnum, make_name, take_enclosed_data, dissect, remove_comments, collection_copy
 from cost_utils import calculate_cost
-from action_utils import check_action_precs, find_negatives, partition_recursively, classify_parameter, couple_params, assign_perms, combine_actions, max_similitude_coup, check_action_compat
+from action_utils import *#check_action_precs, find_negatives, partition_recursively, classify_parameter, couple_params, assign_perms, combine_actions, max_similitude_coup, check_action_compat
 from parser_utils import write_domain, write_problem
 
 PDDLDIR = r"..\pddl_files"
@@ -23,6 +23,7 @@ ODOMFIL = "domain.pddl"
 OPRBFIL = "problem.pddl"
 
 can_write = False
+can_merge_actions = False
 LENIENT = True
 HASCOST = False
 PERMPUN = ['_', '-']
@@ -517,134 +518,135 @@ def main():
 
     print("Parsing of the provided PDDL problem has terminated with success.\n")
     
-    print("Merging actions...")
-    
-    ok_actions = []
-    
-    for act in arg_data['domain']['actions']:
-        ret = check_action_precs(arg_data['domain']['actions'][act])
-        if ret:
-            ok_actions.append(act)
-        else:
-            print("Precondition of action '" + act + "' is always false, the action has been removed")
+    if can_merge_actions:
+        print("Merging actions...")
         
-    action_couples = []
-    
-    for act1 in ok_actions:
-        for act2 in ok_actions:
-            if act1 == act2:
-                continue
-            action_couples.append((act1, act2))
-    
-    poss_classes = POSSCLASS
-    
-    merged_actions = {}
-    name_count = {x:0 for x in arg_data['domain']['actions']}
-    
-    for coup in action_couples:
+        ok_actions = []
         
-        act1 = collection_copy(arg_data['domain']['actions'][coup[0]])
-        act2 = collection_copy(arg_data['domain']['actions'][coup[1]])
-        
-        pp1 = partition_recursively(act1['precondition'])
-        pe1 = partition_recursively(act1['effect'])
-        
-        pp2 = partition_recursively(act2['precondition'])
-        
-        p1 = act1['parameters']
-        
-        pr1 = {}
-        pr2 = {}
-        
-        for p in act1['parameters']:
-            pr1[p] = classify_parameter('?'+p, pp1, poss_classes)
-        
-        for p in act2['parameters']:
-            pr2[p] = classify_parameter('?'+p, pp2, poss_classes) 
-        
-        fn = find_negatives(pe1, p1, poss_classes)
-        
-        for i in fn:
-            pr1[i[0]].remove(i[1])
-        
-        cp = couple_params(pr1, pr2)        
-        ap = assign_perms(cp)
-        
-        min_dict_list = max_similitude_coup(ap)
-        
-        par_dict_list = []
-        act_new_pars_list = []
-        
-        for ii, x in enumerate(min_dict_list):
+        for act in arg_data['domain']['actions']:
+            ret = check_action_precs(arg_data['domain']['actions'][act])
+            if ret:
+                ok_actions.append(act)
+            else:
+                print("Precondition of action '" + act + "' is always false, the action has been removed")
             
-            idx = 0
+        action_couples = []
+        
+        for act1 in ok_actions:
+            for act2 in ok_actions:
+                if act1 == act2:
+                    continue
+                action_couples.append((act1, act2))
+        
+        poss_classes = POSSCLASS
+        
+        merged_actions = {}
+        name_count = {x:0 for x in arg_data['domain']['actions']}
+        
+        for coup in action_couples:
             
-            aux1  = {}
-            aux2 = [{}, {}]
+            act1 = collection_copy(arg_data['domain']['actions'][coup[0]])
+            act2 = collection_copy(arg_data['domain']['actions'][coup[1]])
             
-            pairing = min_dict_list[ii]
+            pp1 = partition_recursively(act1['precondition'])
+            pe1 = partition_recursively(act1['effect'])
             
-            for i in x:
-                
-                par_name = "par_" + str(idx)
-                aux1[par_name] = [i]
-                aux2[0][i] = par_name
-                if pairing[i] != '':
-                    aux1[par_name].append(pairing[i])
-                    aux2[1][pairing[i]] = par_name
-                idx += 1
-                
+            pp2 = partition_recursively(act2['precondition'])
             
+            p1 = act1['parameters']
+            
+            pr1 = {}
+            pr2 = {}
+            
+            for p in act1['parameters']:
+                pr1[p] = classify_parameter('?'+p, pp1, poss_classes)
             
             for p in act2['parameters']:
-                if p not in aux2[1]:
+                pr2[p] = classify_parameter('?'+p, pp2, poss_classes) 
+            
+            fn = find_negatives(pe1, p1, poss_classes)
+            
+            for i in fn:
+                pr1[i[0]].remove(i[1])
+            
+            cp = couple_params(pr1, pr2)        
+            ap = assign_perms(cp)
+            
+            min_dict_list = max_similitude_coup(ap)
+            
+            par_dict_list = []
+            act_new_pars_list = []
+            
+            for ii, x in enumerate(min_dict_list):
+                
+                idx = 0
+                
+                aux1  = {}
+                aux2 = [{}, {}]
+                
+                pairing = min_dict_list[ii]
+                
+                for i in x:
+                    
                     par_name = "par_" + str(idx)
-                    aux1[par_name] = [str(p)]
-                    aux2[1][str(p)] = par_name
+                    aux1[par_name] = [i]
+                    aux2[0][i] = par_name
+                    if pairing[i] != '':
+                        aux1[par_name].append(pairing[i])
+                        aux2[1][pairing[i]] = par_name
                     idx += 1
+                    
+                
+                
+                for p in act2['parameters']:
+                    if p not in aux2[1]:
+                        par_name = "par_" + str(idx)
+                        aux1[par_name] = [str(p)]
+                        aux2[1][str(p)] = par_name
+                        idx += 1
+                
+                par_dict_list.append(aux1)
+                act_new_pars_list.append(aux2)
+                
+                
             
-            par_dict_list.append(aux1)
-            act_new_pars_list.append(aux2)
+            for idx in range(len(par_dict_list)):
+                
+                na1 = collection_copy(act1)
+                na2 = collection_copy(act2)
+                
+                act_new_pars = act_new_pars_list[idx]
+                
+                nas = [na1, na2]
+                
+                for i, na in enumerate(nas):        
+                    na['precondition'] = na['precondition']
+                    na['effect'] = na['effect']
+                    for p in act_new_pars[i]:
+                        na['precondition'] = na['precondition'].replace(str('?' + p), str('?' + act_new_pars[i][p]))
+                        na['effect'] = na['effect'].replace(str('?' + p), str('?' + act_new_pars[i][p]))
+                                
+                ret = check_action_compat(act1, act2)
+                
+                if not ret:
+                    print("Actions", str(coup[0]), "and", str(coup[1]), "are incompatible")
+                
+                a12 = combine_actions(na1, na1, par_dict_list[ii], HASCOST)
+                name = str(coup[0]) + '_' + str(coup[1])
+                
+                if name in name_count:
+                    name_count[name] += 1
+                    name += '_' + str(name_count[name])
+                else:
+                    name_count[name] = 0                
+                
+                merged_actions[name] = a12
             
+        for a in merged_actions:
+            arg_data['domain']['actions'][a] = merged_actions[a]
             
         
-        for idx in range(len(par_dict_list)):
-            
-            na1 = collection_copy(act1)
-            na2 = collection_copy(act2)
-            
-            act_new_pars = act_new_pars_list[idx]
-            
-            nas = [na1, na2]
-            
-            for i, na in enumerate(nas):        
-                na['precondition'] = na['precondition']
-                na['effect'] = na['effect']
-                for p in act_new_pars[i]:
-                    na['precondition'] = na['precondition'].replace(str('?' + p), str('?' + act_new_pars[i][p]))
-                    na['effect'] = na['effect'].replace(str('?' + p), str('?' + act_new_pars[i][p]))
-                            
-            ret = check_action_compat(act1, act2)
-            
-            if not ret:
-                print("Actions", str(coup[0]), "and", str(coup[1]), "are incompatible")
-            
-            a12 = combine_actions(na1, na1, par_dict_list[ii], HASCOST)
-            name = str(coup[0]) + '_' + str(coup[1])
-            
-            if name in name_count:
-                name_count[name] += 1
-                name += '_' + str(name_count[name])
-            else:
-                name_count[name] = 0                
-            
-            merged_actions[name] = a12
-        
-    for a in merged_actions:
-        arg_data['domain']['actions'][a] = merged_actions[a]
-        
-    
-    print("Action merging complete\n")    
+        print("Action merging complete\n")    
     if can_write:
         print("Saving new domain")
         write_domain(os.path.join(OUTDIR, ODOMFIL), arg_data['domain'])

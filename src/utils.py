@@ -168,7 +168,116 @@ def align(cols):
         # every result collection from the recursive operation
         for c in cur:
             for c1 in ret:
-                aux = c1 + [c]
+                aux = [c] + c1
                 res.append(aux)
         
         return res
+
+# Align the components of a dictionary of lists
+def align_dictionary(d):
+    
+    assert type(d) == dict          # Check the argument is a dictionary
+    
+    def iteration_step(d, used=[]):
+        
+        if d == {}:                 # Base step
+            return [{}]
+        
+        out = []
+        
+        d_copy = collection_copy(d)     # Copy the dict to prevent side effect
+        head = list(d_copy.keys())[0]   # Recover parameter
+        cont = d_copy.pop(head, None)   # Recover list of possible matches
+        
+        
+        if cont != []:
+            
+            for i in cont:
+                
+                # Check if a match has not been used before
+                if i not in used:
+                    ret = iteration_step(d_copy, used + [i])    # Iterate
+                    for r in ret:       # Attach the parameter to the return
+                        r[head] = i
+                        out.append(r)
+                else:
+                    out += iteration_step(d_copy, used)
+            return out
+        
+        # Parameter may not have any possible matches
+        else:
+            return iteration_step(d_copy, used)
+    
+    return iteration_step(d)
+    
+def permutations(col):
+    
+    def permutations_d(col):
+    
+        assert type(col) == dict
+        
+        if len(col) == 0:   # Base step
+            return [{}]
+        
+        out = []
+        
+        col_copy = collection_copy(col)
+        
+        for elem in col_copy:
+            cont = col_copy[elem]        
+            col_next = collection_copy(col_copy)
+            col_next.pop(elem, None)
+            ret = permutations_d(col_next)
+            for r in ret:
+                r[elem] = cont
+                out.append(r)
+        
+        return out
+    
+    def permutations_l(col):       
+    
+        assert type(col) == list
+        
+        if len(col) == 0:   # Base step
+            return [[]]
+        
+        out = []
+        
+        col_copy = collection_copy(col)
+        
+        for elem in col_copy:
+            ret = permutations_l(col_copy.remove(elem))
+            for r in ret:
+                out.append([elem] + r)
+        
+        return out
+    
+    if type(col) == dict:
+        return permutations_d(col)
+    elif type(col) == list:
+        return permutations_l(col)
+    else:
+        return None
+
+def remove_duplicates(col):
+    
+    assert type(col) == list
+    
+    ret = []
+    
+    for c in col:
+        if c not in ret:
+            ret.append(c)
+    
+    return ret
+
+
+
+
+
+
+
+
+
+
+
