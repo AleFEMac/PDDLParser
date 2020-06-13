@@ -6,7 +6,7 @@ Created on Wed Aug  7 09:24:47 2019
 """
 
 from utils import ischalnum, make_name, take_enclosed_data, dissect, printd, collection_copy, align, align_dictionary, permutations
-from utils import remove_duplicates
+from utils import remove_duplicates, nthkey
 import boolean as bb
 
 # =============================================================================
@@ -26,18 +26,51 @@ def couple_params(ac1, ac2):
                 
     return matches
 
-def check_action_compat(a1, a2):    
-
-    bool_alg = bb.BooleanAlgebra()      
-        
-    t1 = to_boolean(partition_recursively(a1['precondition'].replace('-', '___')))
-    t2 = to_boolean(partition_recursively(a1['effect'].replace('-', '___')))
-    t3 = to_boolean(partition_recursively(a2['precondition'].replace('-', '___')))
-
-    ex1 = bool_alg.parse('(' + t1 + ')').simplify()
-    ex2 = bool_alg.parse('(' + t2 + ') & (' + t3 + ')').simplify()    
+def check_action_compat(exp1, exp2): 
     
-    return (ex1 and ex2)
+    for ex2 in exp2:
+        
+        admissible = False
+        
+        for ex1 in exp1:
+            
+            exp_admissible = True
+            
+            for stat2 in ex2:
+                    
+                pos2 = True
+                
+                nstat2 = collection_copy(stat2)
+                if nthkey(nstat2) == 'not':
+                    nstat2 = nstat2['not'][0]
+                    pos2 = False
+                
+                for stat1 in ex1:
+                    
+                    pos1 = True
+                    
+                    nstat1 = collection_copy(stat1)
+                    if nthkey(nstat1) == 'not':
+                        nstat1 = nstat1['not'][0]
+                        pos1 = False
+                    
+                    if nstat2 == nstat1 and not (pos1 and pos2):
+                        exp_admissible = False
+                        break
+                
+                if not exp_admissible:
+                    break
+            
+            if exp_admissible:
+                admissible = True
+        
+        if admissible:
+            return True
+                    
+    
+    
+    
+    return False
         
         
 # =============================================================================
@@ -115,6 +148,9 @@ def assign_perms(level):
     return all_perms
 
 def partition_recursively(string, remove_increase=True):
+    
+    if string == '':
+        return {}
     
     ss = string.strip()[1:-1].strip()
     
@@ -203,6 +239,9 @@ def classify_parameter(param, exprs, classes=[]):
 
 def to_boolean(level):
     
+    if level == {}:
+        return {}
+    
     op = list(level.keys())[0]
     expression = ""
     
@@ -251,6 +290,9 @@ def apply_negative(col):
 
 def toDNF(level, params={}):
     
+    if level == {}:
+        return []
+
     op = list(level.keys())[0]
     
     
@@ -321,11 +363,22 @@ def toDNF(level, params={}):
 
 def assemble_DNF(or_clauses):
     
+    if len(or_clauses) == 0:
+        return {}     
+    
     expression = {'or':[]}
     
     for clause in or_clauses:
-        expression['or'].append({'and':collection_copy(clause)})
+        if len(clause) > 1:
+            expression['or'].append({'and':collection_copy(clause)})
+        elif len(clause) == 1:
+            expression['or'].append(clause[0])
+        else:
+            return {}
         
+    if len(or_clauses) == 1:
+        expression = expression['or'][0]
+    
     return expression
 
 def apply_effect(prec, eff):
@@ -386,8 +439,13 @@ def apply_effect(prec, eff):
             or_clause_list.append({'and':and_clause_list})
         else:
             or_clause_list.append(and_clause_list)
-                
-    return {'or':or_clause_list}
+    
+    if len(or_clause_list) > 1:
+        return {'or':or_clause_list}
+    elif len(or_clause_list) == 1:
+        return or_clause_list[0]
+    else:
+        return {}
 
 
 def associate_parameter(param, expression):
@@ -395,6 +453,9 @@ def associate_parameter(param, expression):
     # We don't need the "number" of associations a parameter has, so we use
     # a set instead of a list
     associations = set()
+    
+    if len(expression) == 0:    # Actions may not have preconditions
+        return associations
     
     c_param = str('?' + param)              # Add the '?' to the parameter
     operator = list(expression.keys())[0]   # Header of the level
@@ -436,20 +497,28 @@ def pick_max_matches(inters):
             out = [i]
     return out
 
-def replace_params(level, par_maps):
+# Replace parameters of an action with generic 'par_n' names, which will be
+# used in the final combined action
+def replace_params(level, par_maps, middlemen={}):
     
     assert type(level) == dict
     
+    if len(level) == 0:
+        return
+        
     operator = list(level.keys())[0]
     content = level[operator]
     
     if operator in ['or', 'and', 'not']:
         for i in content:
-            replace_params(i, par_maps)
+            replace_params(i, par_maps, middlemen)
     else:
         new_content = []
         for i in content:
-            new_content.append(str('?' + str(par_maps[i[1:]])))
+            if i[1:] in par_maps:
+                new_content.append(str('?' + str(par_maps[i[1:]])))
+            else:
+                new_content.append(str('?' + str(par_maps[middlemen[i[1:]]])))
         level[operator] = new_content
         return
             
@@ -465,107 +534,147 @@ actions = {
                  'effect': '(and (on ?r) (active ?b) (not (disabled ?r)))'},
         'move': {'parameters': ['rob', 'to'], 
                  'precondition': '(and (type_robot ?rob) (type_position ?to) (on ?rob) (not (at ?rob ?to)))', 
+                 'effect': '(at ?rob ?to)'},
+        'scream': {'parameters': ['r'],
+                   'precondition': '(and (type_robot ?r) (silent ?r))',
+                   'effect': '(not (silent ?r))'},
+        'a1': {'parameters': ['rob'],
+                   'precondition': '(type_robot ?rob)',
+                   'effect': '(a_1 ?rob)'},
+        'a2': {'parameters': ['r'],
+                   'precondition': '(type_robot ?r)',
+                   'effect': '(type_robot ?r)'},
+        'a3': {'parameters': ['rob', 'to'], 
+                 'precondition': '(and (type_robot ?rob) (type_position ?to) (not (on ?rob)) (not (at ?rob ?to)))', 
                  'effect': '(at ?rob ?to)'}
         }
-pa1 = actions['start']['parameters']
-pa2 = actions['move']['parameters']
-pr1 = partition_recursively(actions['start']['precondition'])
-pr2 = partition_recursively(actions['move']['precondition'])
-ef1 = partition_recursively(actions['start']['effect'])
-ef2 = partition_recursively(actions['move']['effect'])
-
-p1 = toDNF(pr1)
-p2 = toDNF(pr2)
-
-# =============================================================================
-# print("p1>", p1)
-# print("ef1>", ef1, '\n')
-# =============================================================================
-
-ae = apply_effect(p1, ef1)
-# =============================================================================
-# print("\nae>", ae)
-# =============================================================================
-
-print(to_boolean(ae))
-
-a1 = associate_parameters(actions['start']['parameters'], ae)
-a2 = associate_parameters(actions['move']['parameters'], assemble_DNF(p2))
-# =============================================================================
-# printd(a1)
-# printd(a2)
-# =============================================================================
-
-intersections = {}
-for i in a1:
-    intersections[i] = []
-    for j in a2:
-        if a1[i].intersection(a2[j]) != set():
-            intersections[i].append(j)
-
-
-# =============================================================================
-# add = {'a':[1,2], 'b':[3], 'c':[1,4,2]}
-# ap = permutations(add)
-# ad = []
-# for a in ap:
-#     ad += align_dictionary(a)
-# o = pick_max_matches(ad)
-# 
-# o = remove_duplicates(o)
-# =============================================================================
-
-inter_permutations = permutations(intersections)
-aligned_dictionaries = []
-for perm in inter_permutations:
-    aligned_dictionaries += align_dictionary(perm)
-max_matches = pick_max_matches(aligned_dictionaries)
-
-max_matches = remove_duplicates(max_matches)
-all_parametrizations = []
-all_inv_parametrizations  = []
-dude = []
-for match in max_matches:
-    idx = 0
-    used = []
-    parametrization = {}
-    inv_parametrization = {}
-    for couple in match:
-        par = "par_" + str(idx)
-        parametrization[par] = couple
-        inv_parametrization[couple] = par
-        used.append(match[couple])
-        idx += 1
         
-    for par1 in pa1:
-        if par1 not in inv_parametrization:
-            par = "par_" + str(idx)
-            parametrization[par] = par1
-            inv_parametrization[par1] = par
-            idx += 1
-            
-    for par2 in pa2:
-        if par2 not in used:
-            par = "par_" + str(idx)
-            parametrization[par] = par2
-            inv_parametrization[par2] = par
-            used.append(par2)
-            idx += 1
-    
-    all_parametrizations.append(parametrization)
-    all_inv_parametrizations.append(inv_parametrization)
-    
-    copy_ae = collection_copy(ae)
-    replace_params(copy_ae, inv_parametrization)
-    copy_ae_cont = []
-    
-    
-    
-    
-    
-    
-    
-    
+# =============================================================================
+# names = [list(actions.keys())[3], list(actions.keys())[4]]
+# pa1 = actions[names[0]]['parameters']
+# pa2 = actions[names[1]]['parameters']
+# pr1 = partition_recursively(actions[names[0]]['precondition'])
+# pr2 = partition_recursively(actions[names[1]]['precondition'])
+# ef1 = partition_recursively(actions[names[0]]['effect'])
+# ef2 = partition_recursively(actions[names[1]]['effect'])
+# 
+# p1 = toDNF(pr1)
+# p2 = toDNF(pr2)
+# 
+# ae = apply_effect(p1, ef1)
+# a1 = associate_parameters(actions[names[0]]['parameters'], ae)
+# a2 = associate_parameters(actions[names[1]]['parameters'], assemble_DNF(p2))
+# 
+# intersections = {}
+# for i in a1:
+#     intersections[i] = []
+#     for j in a2:
+#         if a1[i].intersection(a2[j]) != set():
+#             intersections[i].append(j)
+# 
+# 
+# inter_permutations = permutations(intersections)
+# aligned_dictionaries = []
+# for perm in inter_permutations:
+#     aligned_dictionaries += align_dictionary(perm)
+# max_matches = pick_max_matches(aligned_dictionaries)
+# 
+# 
+# 
+# max_matches = remove_duplicates(max_matches)
+# all_parametrizations = []
+# all_inv_parametrizations  = []
+# generated_actions = {}
+# for a_idx, match in enumerate(max_matches):
+#     idx = 0
+#     used = []
+#     parametrization = {}
+#     inv_parametrization = {}
+#     
+#     inv_match = {}
+#     for key in match:
+#         inv_match[match[key]] = key
+#         print(">", key)
+#     
+#     for couple in match:
+#         par = "par_" + str(idx)
+#         parametrization[par] = couple
+#         inv_parametrization[couple] = par
+#         used.append(match[couple])
+#         idx += 1
+#         
+#     for par1 in pa1:
+#         if par1 not in inv_parametrization:
+#             par = "par_" + str(idx)
+#             parametrization[par] = par1
+#             inv_parametrization[par1] = par
+#             idx += 1
+#             
+#     for par2 in pa2:
+#         if par2 not in used:
+#             par = "par_" + str(idx)
+#             parametrization[par] = par2
+#             inv_parametrization[par2] = par
+#             used.append(par2)
+#             idx += 1
+#     
+#     all_parametrizations.append(parametrization)
+#     all_inv_parametrizations.append(inv_parametrization)
+#     
+#     copy_ae = collection_copy(ae)
+#     replace_params(copy_ae, inv_parametrization)
+#     copy_prec1 = collection_copy(pr1)
+#     replace_params(copy_prec1, inv_parametrization)
+#     copy_prec1 = toDNF(copy_prec1)
+#     copy_prec2 = collection_copy(pr2)
+#     replace_params(copy_prec2, inv_parametrization, inv_match)
+#     copy_prec2 = toDNF(copy_prec2)
+#     
+#     copy_eff1 = collection_copy(ef1)
+#     replace_params(copy_eff1, inv_parametrization)
+#     copy_eff1 = toDNF(copy_eff1)
+#     
+#     copy_eff2 = collection_copy(ef2)
+#     replace_params(copy_eff2, inv_parametrization, inv_match)
+#     copy_eff2 = toDNF(copy_eff2)
+#     
+#     # Doability check
+#     action_compat = check_action_compat(toDNF(copy_ae), copy_prec2)
+#     
+#     copy_ae_cont = toDNF(copy_ae)
+#         
+#     
+#     for clause in copy_prec2:       # OR clause 
+#         for stat in clause:         # statement in clause
+#             
+#             # Check now if the statement is entailed by the effect of the
+#             # first action. AE has necessarily the same amount of clauses
+#             # as the precondition of the first action
+#             for idx, ae_clause in enumerate(copy_ae_cont):  
+#                 # ae_clause_cont = ae_clause['and']
+#                 if stat not in ae_clause and stat not in copy_prec1[idx]:
+#                     copy_prec1[idx].append(stat)
+#         
+#     if len(copy_eff2[0]) > 1:
+#         copy_eff2 = {'and':copy_eff2[0]}
+#     else:
+#         copy_eff2 = copy_eff2[0][0]
+#     
+#     final_prec = collection_copy(copy_prec1)
+#     final_effect = apply_effect(copy_eff1, copy_eff2)
+#     
+#     print(">>>", final_prec)
+#     
+#     combined_action = {'parameters':list(parametrization.keys()),
+#                        'precondition':assemble_DNF(final_prec), 
+#                        'effect':final_effect}
+#     
+#     generated_actions[str(names[0] + '_' + names[1] + '_' + str(a_idx))] = combined_action
+# 
+# printd(generated_actions)
+#     
+# =============================================================================
+        
     
     
         

@@ -1,12 +1,12 @@
 (define (problem strips-gripper2)
 	(:domain gripper-strips)
 	(:objects rooma roomb ball1 ball2 left right)
-	(:init (room rooma) ;initialization of the problem
-		(room roomb)
-		(ball ball1)
-		(ball ball2)
-		(gripper left)
-		(gripper right)
+	(:init (type_room rooma) ;initialization of the problem
+		(type_room roomb)
+		(type_ball ball1)
+		(type_ball ball2)
+		(type_gripper left)
+		(type_gripper right)
 		(at-robby rooma)
 		(free left)
 		(free right)

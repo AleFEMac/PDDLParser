@@ -5,6 +5,8 @@ Created on Mon Sep  9 11:16:10 2019
 @author: Ale
 """
 
+from action_utils import toDNF, partition_recursively
+
 def write_domain(file, domain_struct):
     
     domain = "(define (domain "
@@ -68,3 +70,37 @@ def write_problem(file, problem_struct):
     f.close()
     
     return
+
+# Checks if the parameters expressed by the precondition/effect of an action
+# are actually defined
+def action_parameters_check(level, params):
+    
+    def action_parameters_check_in(level, params):
+        
+        if len(level) == 0:
+            return False
+        
+        head = list(level.keys())[0]
+        body = level[head]
+        
+        if head not in ['and', 'or', 'not']:
+            for par in body:
+                if par[1:] not in params:
+                    return False
+        else:
+            for subc in body:
+                ret = action_parameters_check_in(subc, params)
+                if not ret:
+                    return False
+        
+        return True
+    
+    assert len(params) > 0
+    
+    prt_level = partition_recursively(level)
+    print(prt_level)
+    dnf_level = toDNF(prt_level, params)
+    if len(dnf_level) == 0:
+        return False
+
+    return action_parameters_check_in(dnf_level, params)

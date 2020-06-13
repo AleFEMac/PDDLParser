@@ -38,6 +38,7 @@ def ischalnum(string, puncts=['.']):
             return False
     return True
 
+# Turn a list of directories/files in a parsable path
 def make_name(directories):
     name = ""
     for directory in directories:
@@ -45,6 +46,9 @@ def make_name(directories):
     
     return name[:-1]            
 
+# Takes all characters (aside from those in "ignore_inside")included between a 
+# set of a started and an ender and saves them in a list. Multiple sets of 
+#starters-enders generate multiple lists.
 def take_enclosed_data(data, starter="(", ender=")", ignore_inside=[], no_outliers=False):
     par = 0
     data_l = []
@@ -271,13 +275,13 @@ def remove_duplicates(col):
     
     return ret
 
-
-
-
-
-
-
-
-
-
+# =============================================================================
+# Returns the nth  key of a dictionary
+# =============================================================================
+def nthkey(d, i=0):
+    
+    assert type(d) == dict
+    assert len(list(d.keys())) >= i
+    
+    return list(d.keys())[i]
 

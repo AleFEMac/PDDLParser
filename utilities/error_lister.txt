@@ -1,0 +1,50 @@
+Domain:
+
+	General:
+	
+		- Less than two arguments (domain domain_name)
+		- More than two arguments (domain domain_name)
+	
+	Predicates:
+		
+		- Less than two arguments (predicates ([predicate1]) ([predicate2]) ... ([predicateN]))
+		- 
+	
+
+	Actions:
+		
+		General:
+		
+			- Multiple semicolons in action definition
+			- Suspected action doesn't begin with ':action'
+			- More than four elements in an action (name, paramters, precondition, effect)
+			- Named element (name, paramters, precondition, effect) repeated (both as an error and a warning)
+		
+		Name:
+		
+			- More than two elements in the name (structure is ":action [name]")
+			- Action reusing a name (warning/error)
+			
+		Parameters:
+		
+			- Name not visited yet
+			- Out-of-parentheses character
+			- Multiple sets of parentheses (warning/error)
+			- Parameter not preceded by '?' (warning)
+			- Parameter already present (warning)
+		
+		Precondition:
+			
+			- Parameters not visited yet
+			- TOADD: Check if a parameter/predicate is used without having been declared first
+		
+		Effect:
+		
+			- Precondition not visited yet
+			- Cost: Action has no cost
+			- Cost: Actions has multiple costs
+			- TOADD: Check if a parameter/predicate is used without having been declared first
+		
+		
+			
+			

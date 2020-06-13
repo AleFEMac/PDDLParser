@@ -5,6 +5,129 @@ Created on Sun Feb  2 17:35:14 2020
 @author: Ale
 """
 
+# =============================================================================
+#         merged_actions = {}
+#         name_count = {x:0 for x in arg_data['domain']['actions']}
+#         
+#         for coup in action_couples:
+#             
+#             act1 = collection_copy(arg_data['domain']['actions'][coup[0]])
+#             act2 = collection_copy(arg_data['domain']['actions'][coup[1]])
+#             
+#             pp1 = partition_recursively(act1['precondition'])
+#             pe1 = partition_recursively(act1['effect'])
+#             
+#             pp2 = partition_recursively(act2['precondition'])
+#             
+#             p1 = act1['parameters']
+#             
+#             pr1 = {}
+#             pr2 = {}
+#             
+#             for p in act1['parameters']:
+#                 pr1[p] = classify_parameter('?'+p, pp1, poss_classes)
+#             
+#             for p in act2['parameters']:
+#                 pr2[p] = classify_parameter('?'+p, pp2, poss_classes) 
+#             
+#             fn = find_negatives(pe1, p1, poss_classes)
+#             
+#             for i in fn:
+#                 pr1[i[0]].remove(i[1])
+#             
+#             cp = couple_params(pr1, pr2)        
+#             ap = assign_perms(cp)
+#             
+#             min_dict_list = max_similitude_coup(ap)
+#             
+#             par_dict_list = []
+#             act_new_pars_list = []
+#             
+#             for ii, x in enumerate(min_dict_list):
+#                 
+#                 idx = 0
+#                 
+#                 aux1  = {}
+#                 aux2 = [{}, {}]
+#                 
+#                 pairing = min_dict_list[ii]
+#                 
+#                 for i in x:
+#                     
+#                     par_name = "par_" + str(idx)
+#                     aux1[par_name] = [i]
+#                     aux2[0][i] = par_name
+#                     if pairing[i] != '':
+#                         aux1[par_name].append(pairing[i])
+#                         aux2[1][pairing[i]] = par_name
+#                     idx += 1
+#                     
+#                 
+#                 
+#                 for p in act2['parameters']:
+#                     if p not in aux2[1]:
+#                         par_name = "par_" + str(idx)
+#                         aux1[par_name] = [str(p)]
+#                         aux2[1][str(p)] = par_name
+#                         idx += 1
+#                 
+#                 par_dict_list.append(aux1)
+#                 act_new_pars_list.append(aux2)
+#                 
+#                 
+#             
+#             for idx in range(len(par_dict_list)):
+#                 
+#                 na1 = collection_copy(act1)
+#                 na2 = collection_copy(act2)
+#                 
+#                 act_new_pars = act_new_pars_list[idx]
+#                 
+#                 nas = [na1, na2]
+#                 
+#                 for i, na in enumerate(nas):        
+#                     na['precondition'] = na['precondition']
+#                     na['effect'] = na['effect']
+#                     for p in act_new_pars[i]:
+#                         na['precondition'] = na['precondition'].replace(str('?' + p), str('?' + act_new_pars[i][p]))
+#                         na['effect'] = na['effect'].replace(str('?' + p), str('?' + act_new_pars[i][p]))
+#                                 
+#                 ret = check_action_compat(act1, act2)
+#                 
+#                 if not ret:
+#                     print("Actions", str(coup[0]), "and", str(coup[1]), "are incompatible")
+#                 
+#                 a12 = combine_actions(na1, na1, par_dict_list[ii], HASCOST)
+#                 name = str(coup[0]) + '_' + str(coup[1])
+#                 
+#                 if name in name_count:
+#                     name_count[name] += 1
+#                     name += '_' + str(name_count[name])
+#                 else:
+#                     name_count[name] = 0                
+#                 
+#                 merged_actions[name] = a12
+#             
+#         for a in merged_actions:
+#             arg_data['domain']['actions'][a] = merged_actions[a]
+#             
+#         
+#         print("Action merging complete\n")    
+# =============================================================================
+
+def check_action_compat(a1, a2):    
+
+    bool_alg = bb.BooleanAlgebra()      
+        
+    t1 = to_boolean(partition_recursively(a1['precondition'].replace('-', '___')))
+    t2 = to_boolean(partition_recursively(a1['effect'].replace('-', '___')))
+    t3 = to_boolean(partition_recursively(a2['precondition'].replace('-', '___')))
+
+    ex1 = bool_alg.parse('(' + t1 + ')').simplify()
+    ex2 = bool_alg.parse('(' + t2 + ') & (' + t3 + ')').simplify()    
+    
+    return (ex1 and ex2)
+
 def classify_parameter(p, level, classes=[], neglevel=0):
     
     assert p[0] == '?'
