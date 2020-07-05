@@ -115,18 +115,20 @@ Created on Sun Feb  2 17:35:14 2020
 #         print("Action merging complete\n")    
 # =============================================================================
 
-def check_action_compat(a1, a2):    
-
-    bool_alg = bb.BooleanAlgebra()      
-        
-    t1 = to_boolean(partition_recursively(a1['precondition'].replace('-', '___')))
-    t2 = to_boolean(partition_recursively(a1['effect'].replace('-', '___')))
-    t3 = to_boolean(partition_recursively(a2['precondition'].replace('-', '___')))
-
-    ex1 = bool_alg.parse('(' + t1 + ')').simplify()
-    ex2 = bool_alg.parse('(' + t2 + ') & (' + t3 + ')').simplify()    
-    
-    return (ex1 and ex2)
+# =============================================================================
+# def check_action_compat(a1, a2):    
+# 
+#     bool_alg = bb.BooleanAlgebra()      
+#         
+#     t1 = to_boolean(partition_recursively(a1['precondition'].replace('-', '___')))
+#     t2 = to_boolean(partition_recursively(a1['effect'].replace('-', '___')))
+#     t3 = to_boolean(partition_recursively(a2['precondition'].replace('-', '___')))
+# 
+#     ex1 = bool_alg.parse('(' + t1 + ')').simplify()
+#     ex2 = bool_alg.parse('(' + t2 + ') & (' + t3 + ')').simplify()    
+#     
+#     return (ex1 and ex2)
+# =============================================================================
 
 def classify_parameter(p, level, classes=[], neglevel=0):
     
@@ -218,3 +220,17 @@ def find_negatives(level, params, classes, neg=False):
                     tbr.add((a[1:],op))
     
     return tbr
+
+# =============================================================================
+# Check that the preconditions of an action are not always false
+# =============================================================================
+def check_action_precs_old(act):
+        
+    ba = bb.BooleanAlgebra()
+    
+    # If the parametric preconditions are False, the action will never be
+    # performable
+    if ba.parse(to_boolean(partition_recursively(act['precondition'].replace('-', '___')))).simplify() == False:
+        return False
+    else:
+        return True 

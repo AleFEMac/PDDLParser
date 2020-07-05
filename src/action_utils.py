@@ -28,16 +28,13 @@ def couple_params(ac1, ac2):
 
 def check_action_compat(exp1, exp2): 
     
-    for ex2 in exp2:
-        
+    for ex2 in exp2:        
         admissible = False
         
-        for ex1 in exp1:
-            
+        for ex1 in exp1:            
             exp_admissible = True
             
-            for stat2 in ex2:
-                    
+            for stat2 in ex2:                    
                 pos2 = True
                 
                 nstat2 = collection_copy(stat2)
@@ -45,8 +42,7 @@ def check_action_compat(exp1, exp2):
                     nstat2 = nstat2['not'][0]
                     pos2 = False
                 
-                for stat1 in ex1:
-                    
+                for stat1 in ex1:                    
                     pos1 = True
                     
                     nstat1 = collection_copy(stat1)
@@ -66,26 +62,8 @@ def check_action_compat(exp1, exp2):
         
         if admissible:
             return True
-                    
-    
-    
     
     return False
-        
-        
-# =============================================================================
-# Check that the preconditions of an action are not always false
-# =============================================================================
-def check_action_precs(act):
-        
-    ba = bb.BooleanAlgebra()
-    
-    # If the parametric preconditions are False, the action will never be
-    # performable
-    if ba.parse(to_boolean(partition_recursively(act['precondition'].replace('-', '___')))).simplify() == False:
-        return False
-    else:
-        return True 
 
 def combine_actions(a1, a2, par_dict, hascost=True):
     
@@ -183,26 +161,26 @@ def compose_partition(level):
     op = list(level.keys())[0]
     
     if op == "and":
-        comp += "(and "
+        comp += "(and"
         for arg in level[op]:
             ret = compose_partition(arg)
-            comp += ret + ' '
+            comp += ' ' + ret
         comp += ")"
         return comp
     elif op == "or":
-        comp += "(or "
+        comp += "(or"
         for arg in level[op]:
             ret = compose_partition(arg)
-            comp += ret + ' '
+            comp += ' ' + ret
         comp += ")"
         return comp
     elif op == "not":
         comp += "(not " + compose_partition(level[op][0]) + ")"
         return comp
     else:
-        comp += "(" + str(op) + ' '
+        comp += "(" + str(op)
         for arg in level[op]:
-            comp += arg + ' '
+            comp += ' ' + arg
         comp += ")"        
         return comp
 
@@ -522,7 +500,90 @@ def replace_params(level, par_maps, middlemen={}):
         level[operator] = new_content
         return
             
+# Checks if the parameters expressed by the precondition/effect of an action
+# are actually defined
+def action_cons_check(level, params, predics):
+    
+    def action_cons_check_in(level, params, predics):
+        
+        if len(level) == 0:
+            return False, 0, ()       
+        
+        head = list(level.keys())[0]
+        body = level[head]
+        
+        if head not in ['and', 'or', 'not']:
+            if head not in predics:
+                return False, 1, (head)
+            elif head in predics and len(predics[head]) != len(body):
+                return False, 2, (head, str(len(predics[head])), str(len(body)))
+            else:
+                for par in body:
+                    if par[1:] not in params:
+                        return False, 3, (head, par[1:])
+        else:
+            for subc in body:
+                ret, rerr, rpar = action_cons_check_in(subc, params, predics)
+                if not ret:
+                    return False, rerr, rpar
+        
+        return True, None, None
+    
+    assert len(params) > 0
+    
+    prt_level = partition_recursively(level)
+    dnf_level = assemble_DNF(toDNF(prt_level, params))
+    if len(dnf_level) == 0:
+        return False
 
+    return action_cons_check_in(dnf_level, params, predics)
+
+# =============================================================================
+# Check action preconditions without using the boolean module
+# =============================================================================
+def check_action_precs(act):
+    
+    prec = collection_copy(act['precondition'])
+    prec_dnf = toDNF(partition_recursively(prec))
+    
+    acceptable = True
+    
+    for or_clause in prec_dnf:
+        memory = []
+        
+        for predicate in or_clause:
+            struc = ()
+            pos = True
+            
+            head = nthkey(predicate)
+            body = predicate[head]
+            
+            if head == 'not':
+                pos = False
+                
+                head = nthkey(body[0])
+                body = body[0][head]
+                
+            struc = (head, body, pos)
+            
+            if (head, body, not pos) in memory:
+                acceptable = False
+                break
+            else:
+                memory.append(struc)
+        
+        if acceptable:
+            return True
+        
+    return False
+
+def check_pointlessness(act1, act2):
+    
+        
+    
+    return True
+    
+    
 # =============================================================================
 # TESTING PORTION
 # =============================================================================
@@ -546,9 +607,17 @@ actions = {
                    'effect': '(type_robot ?r)'},
         'a3': {'parameters': ['rob', 'to'], 
                  'precondition': '(and (type_robot ?rob) (type_position ?to) (not (on ?rob)) (not (at ?rob ?to)))', 
-                 'effect': '(at ?rob ?to)'}
+                 'effect': '(at ?rob ?to)'},
+        'a4': {'parameters': ['rob', 'to'], 
+                 'precondition': '(and (type_robot ?rob) (type_position ?to) (not (on ?rob)) (not (at ?rob ?to)))', 
+                 'effect': '(at ?rob ?to)'}        
         }
         
+# =============================================================================
+# a = toDNF(partition_recursively(actions['a4']['precondition']))
+# print(check_action_precs_2(actions['a4']))
+# =============================================================================
+       
 # =============================================================================
 # names = [list(actions.keys())[3], list(actions.keys())[4]]
 # pa1 = actions[names[0]]['parameters']
