@@ -8,30 +8,31 @@ Created on Sun Dec 16 16:17:44 2018
 import os
 from utils import ischalnum, make_name, take_enclosed_data, dissect, remove_comments, collection_copy
 from utils import remove_duplicates, permutations
-from cost_utils import calculate_cost
+from cost_utils import calculate_cost, merge_costs, introduce_cost
 from action_utils import partition_recursively, compose_partition, pick_max_matches
 from action_utils import toDNF, apply_effect, associate_parameters, assemble_DNF
 from action_utils import check_action_compat, align_dictionary, replace_params
-from action_utils import check_action_precs, action_cons_check
+from action_utils import check_action_formula, action_cons_check, check_pointlessness
 from parser_utils import write_domain, write_problem
 
 PDDLDIR = r"..\pddl_files"
 UTILDIR = r"..\utilities"
 OUTDIR  = r"..\out"
-PDDLDOM = "domain.pddl"
-PDDLPRB = "problem.pddl"
+PDDLDOM = "domain_cost.pddl"
+PDDLPRB = "problem_cost.pddl"
 MSGFILE = "messages.txt"
 PRDFILE = "predefined.txt"
-ODOMFIL = "domain.pddl"
-OPRBFIL = "problem.pddl"
+ODOMFIL = "domain_cost.pddl"    #"domain_output.pddl"
+OPRBFIL = "problem_cost.pddl"   # problem_output.pddl"
 
 can_write = False
-can_merge_actions = False
+can_merge_actions = True
 LENIENT = True
-HASCOST = False
+HASCOST = True
 PERMPUN = ['_', '-']
-POSSCLASS = ['room', 'ball', 'gripper']
-    
+RESVNAMES = ['action', 'define', 'domain', 'predicates', 'parameter', 'precondition', 'effect']
+
+
 def parse_element(element, arg_data, mode='domain'):
     
     lenient = arg_data['lenient']
@@ -247,21 +248,38 @@ def parse_element(element, arg_data, mode='domain'):
                         
                 elif elem_name == "precondition":
                     
+                    initial_precondition = elem2
+                    
+# =============================================================================
+#                     if 'parameters' not in visited_action_comps:
+#                         print("\n[ERROR] Encountered a precondition definition without declaring the parameters of the action first in action\n'" + element + "'")
+#                         return False      
+# =============================================================================
+                    # Leave an empty field for the parameters, even if not
+                    # declared
                     if 'parameters' not in visited_action_comps:
-                        print("\n[ERROR] Encountered a precondition definition without declaring the parameters of the action first in action\n'" + element + "'")
-                        return False
+                        action_struct['parameters'] = []                        
                     
-                    elem3 = elem2.replace("precondition", '', 1).strip()  
+                    elem3 = elem2.replace("precondition", '', 1).strip()
                     
-                    out = dissect(elem3, arg_data)
-                    if not out:
-                        return False
-                    
+                    # Preconditions could be empty
+                    check_empty_precondition = False                    
+                    no_parentheses_elem3 = elem3.strip().replace('(', '').replace(')', '').strip()                    
+                    check_empty_precondition = len(no_parentheses_elem3) == 0
+                                        
+                    if check_empty_precondition:
+                        pass
+                    else:
+                        out = dissect(elem3, arg_data)
+                        if not out:
+                            return False
+                                        
                     par_cor, par_err, par_val = action_cons_check(elem3, action_struct['parameters'], arg_data['domain']['predicates'])
                     
-                    if not par_cor:
+                    if not par_cor and par_err != 0:
                         if par_err == 0:
-                            print("\n[ERROR] Error while checking the contents of action\n'" + action_struct['name'] + "'\nVerify that the action contains all of its components.")
+                            pass
+                            #print("\n[ERROR] Error while checking the contents of action\n'" + action_struct['name'] + "'\nVerify that the action contains all of its components.")
                         elif par_err == 1:
                             print("\n[ERROR] The precondition of the action\n'" + action_struct['name'] + "'\nis using the predicate\n'" + par_val[0] + "'\nwhich was not defined in the 'predicates' section of the domain first.\nPlease define the predicate before using it.")
                         elif par_err == 2:
@@ -271,13 +289,31 @@ def parse_element(element, arg_data, mode='domain'):
                         
                         return False
                     
+                    precondition_consistency= check_action_formula({"precondition":initial_precondition}, "precondition")
+                    if not precondition_consistency:
+                        if lenient:
+                            print("[WARNING] The precondition of action\n'" + action_struct['name'] + "'\nis always false. Please check it.")
+                        else:
+                            print("[ERROR] The precondition of action\n'" + action_struct['name'] + "'\nis always false. Please check it.")
+                            return False
+                        
                     action_struct['precondition'] = elem3
+                    
+                    visited_action_comps.append('precondition')
                     
                 elif elem_name == "effect":
                     
                     if 'action' not in visited_action_comps:
                         print("\n[ERROR] Encountered an effect definition without declaring the name of the action first in action\n'" + element + "'")
                         return False
+                                    
+                    if 'precondition' not in visited_action_comps:
+                        action_struct['precondition'] = "()"
+                        
+                    if 'effect' not in visited_action_comps:
+                        action_struct['parameters'] = []
+                        
+                    initial_effect = elem2
                     
                     elem3 = elem2.replace("effect", '', 1).strip()
                     
@@ -298,11 +334,25 @@ def parse_element(element, arg_data, mode='domain'):
                             print("\n[ERROR] The effect of the action\n'" + action_struct['name'] + "'\nis using the parameter\n'" + par_val[1] + "'\nin the predicate\n'" + par_val[0] + "'\nwithout defining it first.\nPlease define all parameters of the action in the 'parameters' section of the action.")
                         
                         return False
+                    
+                    effect_consistency= check_action_formula({"effect":initial_effect}, "effect")
+                    if not effect_consistency:
+                        if lenient:
+                            print("[WARNING] The effect of action\n'" + action_struct['name'] + "'\nis inconsistent. Please check it.")
+                        else:
+                            print("[ERROR] The effect of action\n'" + action_struct['name'] + "'\nis always false. Please check it.")
+                            return False
                         
                     action_struct['effect'] = elem3
                     
                     if HASCOST:
-                        cost = calculate_cost(elem3, arg_data)
+                        cost, operation = calculate_cost(elem3, arg_data)
+                        
+                        if operation not in ["increase", "decrease"]:
+                            print("\n[ERROR] Action\n'" + action_struct['name'] + "'\nis using the operation\n'" + operation + "'\nwhich is not supported. Only use the operations 'increase' and 'decrease' when acting on cost.")
+                            return False
+                        
+                        action_struct['cost_operation'] = operation                            
                         
                         if cost == -1:
                             print("\n[ERROR] Could not calculate cost of the action\n'" + action_struct['name'] + "'\nPlease correct the error, as every action must have a positive cost.")
@@ -310,15 +360,20 @@ def parse_element(element, arg_data, mode='domain'):
                         elif cost == -2:
                             print("\n[ERROR] Action\n'" + action_struct['name'] + "'\nhad more than one specified cost. Actions must have one and only one cost definition.")
                             return False
+                        elif cost < -2:
+                            return False
                         
                         action_struct['cost'] = cost
+                    
+                    
+                    
+                    visited_action_comps.append('effect')
                 
                 else:
                     print("\n[ERROR] Unrecognised element\n'" + elem_name + "'\nin action\n'" + element + "'\nAction element format must be\n':action [action_name] :precondition ([sequence_of_preconditions]) :effect ([series_of_effects])'")
                     return False
                 
-                visited_action_comps.append(elem_name)
-            
+                
             arg_data['domain']['actions'][action_struct['name']] = {}
             for key in action_struct:
                 if key != 'name':
@@ -357,46 +412,61 @@ def parse_element(element, arg_data, mode='domain'):
             
         elif element[:len("(:objects")] == "(:objects":
             
+            # Check if the domain has already been analyzed; otherwise, many of
+            # the problem checks won't work            
             if 'domain' not in arg_data['problem']:
                 print("\n[ERROR] No domain specified.")
                 return False
             
+            # Form the objects list, with the first element being ':objects'
             element2 = element[1:-1].strip()
             elem_list = element2.split()
             elem_list = [x.strip() for x in elem_list]
             
+            # Having no objects means 
             if len(elem_list) < 2:
-                print("\n[ERROR] Too few arguments in suspected objects element '", element + "'.\nObjects elements must have the format\n':objects object1 ... objectN'")
-                return False
+                # print("\n[ERROR] Too few arguments in suspected objects element '", element + "'.\nObjects elements must have the format\n':objects object1 ... objectN'")
+                #arg_data['problem']['objects']
+                return True
+            
             if elem_list[0] != ":objects":
                 print("\n[ERROR] First statement of a 'objects' element must be ':objects', while it was\n'" + elem_list[0] + "'\nin\n'" + element + "'\nPlease put a ':objects' statement before any of the objects.")
                 return False
             
+            # Excise the ':objects' label
             elem_list = elem_list[1:]
-                        
+            
+            # Iterate on all objects
             for obj in elem_list:
                 
+                # Check if an objects with the same name has already been found;
+                # if so, either skip it if lenient or fail and exit if not
                 if obj in arg_data['problem']['objects']:
                     
                     if lenient:
-                        print("\n[WARNING]  Object\n'", obj + "'\nwas already defined in this problem file.\nObjects elements must be declared only once.")
-                    
+                        print("\n[WARNING]  Object\n'", obj + "'\nwas already defined in this problem file.\nObjects elements must be declared only once. The object has been skipped.")
                     else:
                         print("\n[ERROR] Object\n'", obj + "'\nwas already defined in this problem file.\nObjects elements must be declared only once.")
                         return False
-                    
-                elif obj in arg_data['requirements_list']+list(arg_data['predefined'].keys()):
+                
+                # Check if the name of the object is a reserved name (like 'and'
+                # or 'action')
+                elif obj in arg_data['requirements_list']+list(arg_data['predefined'].keys())+RESVNAMES:
                     print("\n[ERROR] Object\n'", obj + "'\nhas an invalid name.\nDo not use names reserved for predefined operators or libraries.")
                     return False
                 
+                # Check if the object name contains non permitted characters
+                # (permitted characters are letters, numbers, the dash and
+                # underscore)
                 elif not ischalnum(obj, PERMPUN) or obj[0].isnumeric():
                     print("\n[ERROR] Object\n'" + obj + "'\ncontains an invalid character.\nObject names may only contain numbers (albeit not in the first position) and letters, along with the characters\n" + str(PERMPUN) + "")
                     return False
                 
+                # Save the objects
                 arg_data['problem']['objects'].append(obj)
                 
         elif element[:len("(:init")] == "(:init":
-            
+                        
             element2 = element[1:-1].strip()
             elem_list = element2.split()
             
@@ -404,32 +474,74 @@ def parse_element(element, arg_data, mode='domain'):
                 print("\n[ERROR] First statement of a ':init' element must be ':init', while it was\n'" + elem_list[0] + "'\nin\n'" + element + "'\nPlease put a ':init' statement before defining the starting conditions.")
                 return False
             
+            # Remove the ':init' label, then partition the string of predicates
+            # into a list (can't use a simple 'split()' due to the parentheses
+            # enclosing the predicate statements containing white spaces)
             element2 = element[1:-1].strip()        
-            elem3 = element2.replace(":init", '', 1).strip()
-            
+            elem3 = element2.replace(":init", '', 1).strip()            
             init_stats = take_enclosed_data(elem3)
+                        
+            # Iterate on all init predicates
             for inst in init_stats:
                 inst_cln = inst[1:-1].strip()
-                
-                if '(' in inst_cln or ')' in inst_cln:
+                                                
+                # Parentheses have already been removed, multiple sets of
+                # concentric parentheses are an error
+                if inst_cln[0] != '=' and ('(' in inst_cln or ')' in inst_cln):
                     print("\n[ERROR] Multiple sets of parentheses detected in the problem definition.\nThe init section ust follow the format\n'(:init (predicate_1 parameter_1 ... parameter_N) ... (predicate_M parameter_1 ... parameter_N))'")
                     return False
+                elif inst_cln[0] == '=':
+                    if not HASCOST:
+                        print("\n[ERROR] A metric was initialized without setting the HASCOST variable to True.\nRemember that this software can only detect cost metrics, and that the presence of cost must be specified first by setting the HASCOST variable to True.")
+                        return False
+                    
+                    # Remove the '=' operator
+                    inst_cln_body = inst_cln.split()
+                    if len(inst_cln_body) != 3:
+                        print("\n[ERROR] Metric initialization has wrong format.\nThe metric format must be\n'(= (metric_name) init_value)\nPlease check your spelling.")
+                        return False
+                        
+                    cost_metric = inst_cln_body[1]                   
+                    
+                    if cost_metric[0] != '(' or cost_metric[-1] != ')':
+                        print("\n[ERROR] Metric name has wrong format.\nThe metric name must be enclosed within parentheses in the following format:\n'(metric_name)\nPlease check your spelling.")
+                        return False   
+                    
+                    cost_metric = cost_metric[1:-1].strip()
+
+                    if not len(cost_metric[0]) > 0:
+                        print("\n[ERROR] Cost metric name has a zero-length name.\nPlease use an actual word.")
+                        return False                      
+                    
+                    
+                    if 'cost_metric' in arg_data['problem']:
+                        print("\n[ERROR] Cost metric for the problem has already been defined.\nDiscarding latest one.")
+                        if not lenient:
+                            return False                    
+                    
+                    arg_data['problem']['cost_metric'] = cost_metric
                 
+                
+                # Init predicates have the format '(pred par1 .. parN)'                
                 pred = inst_cln.split()[0]
                 pars = inst_cln.split()[1:]
-                
-                if pred not in arg_data['domain']['predicates']:
-                    print("\n[ERROR] The init section of the problem is using the predicate\n'" + pred + "'\nwithout prior definition.\nCheck for spelling mistakes or define the predicate in the 'predicates' section of the domain.")
-                    return False
-                
-                if len(pars) != len(arg_data['domain']['predicates'][pred]):
-                    print("\n[ERROR] The init section of the problem is using the wrong amount of parameters for the predicate\n'" + pred + "'\nThe problem is using\n'" + str(len(pars)) + "'\nwhile\n'" + str(len(arg_data['domain']['predicates'][pred])) + "'\nwere expected.")
-                    return False
-                
-                for par in pars:                    
-                    if par not in arg_data['problem']['objects']:
-                        print("\n[ERROR] The init section of the problem is using parameter\n'" + par + "'\nin predicate\n'" + pred + "'\nwithout prior definition.\nCheck for spelling mistakes or define the parameter in the 'objects' section of the problem.")
+                                
+                if pred != '=':
+                    # Check if the predicate was defined in the domain
+                    if pred not in arg_data['domain']['predicates']:
+                        print("\n[ERROR] The init section of the problem is using the predicate\n'" + pred + "'\nwithout prior definition.\nCheck for spelling mistakes or define the predicate in the 'predicates' section of the domain.")
                         return False
+                    
+                    # Check if the predicate has the correct amount of parameters
+                    if '=' and len(pars) != len(arg_data['domain']['predicates'][pred]):
+                        print("\n[ERROR] The init section of the problem is using the wrong amount of parameters for the predicate\n'" + pred + "'\nThe problem is using\n'" + str(len(pars)) + "'\nwhile\n'" + str(len(arg_data['domain']['predicates'][pred])) + "'\nwere expected.")
+                        return False
+                    
+                    # Check if any used parameter was not defined before
+                    for par in pars:                    
+                        if par not in arg_data['problem']['objects']:
+                            print("\n[ERROR] The init section of the problem is using parameter\n'" + par + "'\nin predicate\n'" + pred + "'\nwithout prior definition.\nCheck for spelling mistakes or define the parameter in the 'objects' section of the problem.")
+                            return False
                 
             out = dissect(elem3, arg_data)
             if not out:
@@ -451,7 +563,7 @@ def parse_element(element, arg_data, mode='domain'):
             goal_stats = take_enclosed_data(elem3)
             for gost in goal_stats:
                 gost_cln = gost[1:-1].strip()
-                
+                                
                 if '(' in gost_cln or ')' in gost_cln:
                     print("\n[ERROR] Multiple sets of parentheses detected in the problem definition.\nThe goal section ust follow the format\n'(:goal (predicate_1 parameter_1 ... parameter_N) ... (predicate_M parameter_1 ... parameter_N))'")
                     return False
@@ -477,7 +589,51 @@ def parse_element(element, arg_data, mode='domain'):
                 return False
                 
             arg_data['problem']['goal'] = elem3
-        
+        elif element[:len("(:metric")] == "(:metric": # TODO Maybe done
+            element_cln = element.strip()
+            
+            if not HASCOST:
+                print("\n[ERROR] A metric was defined without setting the HASCOST variable to True.\nRemember that this software can only detect cost metrics, and that the presence of cost must be specified first by setting the HASCOST variable to True.")
+                return False
+            
+            if element_cln[0] != '(' or element_cln[-1] != ')':
+                print("\n[ERROR] The goal section of the problem is using parameter\n'" + par + "'\nin predicate\n'" + pred + "'\nwithout prior definition.\nCheck for spelling mistakes or define the parameter in the 'objects' section of the problem.")
+                return False
+            
+            element_cln = element_cln[1:-1].strip()
+            
+            element_cln_body = element_cln.split()
+            
+            if len(element_cln_body) != 3:
+                print("\n[ERROR] Metric objective has wrong format.\nThe metric format must be\n'(:metric operation (metric_name))\nPlease check your spelling.")
+                return False
+            
+            if element_cln_body[0] != ":metric":
+                print("\n[ERROR] Metric objective element has name\n" + element_cln_body[0] + "\ninstead of ':metric'.\nThe metric format must be\n'(= (metric_name) init_value)\nPlease ensure that you used that format in you problem ':metric' section.")
+                return False
+            
+            if element_cln_body[1] not in ["maximize", "minimize"]:
+                print("\n[ERROR] Metric objective operation is unknown.\nThe metric found is\n" + element_cln_body[1] + "\nBut the only accepted metric operations are 'maximize' and 'minimize'\nPlease ensure that you use one of those in you problem ':metric' section.")
+                return False               
+            
+            used_metric = element_cln_body[2]
+            
+            if used_metric[0] != '(' or used_metric[-1] != ')':
+                print("\n[ERROR] The metric name in the problem :metric section is not enclosed by parentheses.\nPlease ensure that you follow the format\n'(:metric operation (metric_name))")
+                return False
+            
+            used_metric = used_metric[1:-1]
+            
+            if 'cost_metric' not in arg_data['problem']:
+                print("\n[ERROR] No cost metric found in the initialization.\nPlease ensure that you define one in the :init section.")
+                return False              
+            
+            cost_metric = arg_data['problem']['cost_metric']
+            
+            if used_metric != cost_metric:
+                print("\n[ERROR] The metric you are trying to act upon is different from the one defined in the :init section.\nThe one being used in the :metric section is\n" + used_metric + "\nwhile the one defined in the initialization is\n" + cost_metric + "\nPlease change one of the two to the other.")
+                return False           
+            
         else:
             print("\n[ERROR] Unrecognised element\n'" + element + "'\nNo such element is part of a problem.")
             return False
@@ -525,7 +681,7 @@ def parse_domain(domain, arg_data):
     if par != 0:
         print("\n[ERROR] Parsing reached its end while not closing all parentheses")
         return False
-    
+        
     for i in subelements:
         status = parse_element(i, arg_data, 'domain')
         if not status:
@@ -576,6 +732,7 @@ def main():
     arg_data['domain'] = {'requirements':[], 'actions':{}}
     arg_data['problem'] = {'objects':[], 'init':'', 'goal':''}
     arg_data['lenient'] = LENIENT
+    arg_data['cost'] = HASCOST
     
     f = open(make_name([UTILDIR, PRDFILE]), 'r')
     predef = f.readlines()
@@ -614,7 +771,7 @@ def main():
     if not out:
         return
 
-    print("Parsing of the provided PDDL problem has terminated with success.\n")
+    print("Parsing of the provided PDDL problem has terminated with success.\n")       
     
 # =============================================================================
 # ACTION MERGING  
@@ -627,12 +784,15 @@ def main():
         
         # Save actions whose precondition isn't always false
         for act in actions:
-            ret = check_action_precs(actions[act])
-            if ret:
+            ret_precondition = check_action_formula(actions[act], "precondition")
+            ret_effect = check_action_formula(actions[act], "effect")
+            if ret_precondition and ret_effect:
                 ok_actions.append(act)
-            else:
+            elif not ret_precondition:
                 print("Precondition of action '" + act + "' is always false, the action has been removed")
-            
+            elif not ret_effect:
+                print("Effect of action '" + act + "' is always false, the action has been removed")
+                
         action_couples = []
         
         # Form action couples
@@ -643,18 +803,18 @@ def main():
 
         # List of action names
         name_list = [x for x in arg_data['domain']['actions']]
-        
-# =============================================================================
-#         print(len(action_couples), action_couples)
-# =============================================================================
-        
+                
         all_merged_actions = {}
         
         for coup in action_couples:
-                        
+            
             # Parameters of the two actions
             pa1 = actions[coup[0]]['parameters']
             pa2 = actions[coup[1]]['parameters']
+            
+            no_parameters_in_couple = False            
+            if len(pa1) == len(pa2) == 0:
+                no_parameters_in_couple = True
             
             # Preconditions of the two actions
             pr1 = partition_recursively(actions[coup[0]]['precondition'])
@@ -678,7 +838,6 @@ def main():
             # preconditions of the second action
             a1 = associate_parameters(actions[coup[0]]['parameters'], ae)
             a2 = associate_parameters(actions[coup[1]]['parameters'], assemble_DNF(p2))
-            
             
             # Find parameter intersections: parameters of the second action are
             # associated to the parameters of the first action they share a
@@ -705,9 +864,14 @@ def main():
             all_parametrizations = []
             all_inv_parametrizations  = []
             generated_actions = {}
-            
+                                    
             # Cycle on all maximal pairings
             for a_idx, match in enumerate(max_matches):
+        
+                # Actions can be merged with no matches only when they both
+                # have no parameters
+                if len(max_matches) == 0 and not no_parameters_in_couple:
+                    break
                 
                 idx = 0
                 used = []
@@ -750,7 +914,7 @@ def main():
                 all_inv_parametrizations.append(inv_parametrization)
                 
                 # Replace the old parameters in the post-execution world,
-                # preconditions of the first anction and preconditions of the
+                # preconditions of the first action and preconditions of the
                 # second action with the new ones, then reduce to DNF base form
                 # (ie. non compatible with PDDL yet) the last two                
                 copy_ae = collection_copy(ae)
@@ -777,6 +941,10 @@ def main():
                 if not action_compat:
                     continue
                 
+                usefulness = check_pointlessness(actions[coup[0]], actions[coup[1]], inv_parametrization, inv_match)
+                if not usefulness:
+                    continue
+                
                 copy_ae_cont = toDNF(copy_ae)
                 
                 for clause in copy_prec2:       # OR clause 
@@ -785,7 +953,7 @@ def main():
                         # Check now if the statement is entailed by the effect 
                         # of the first action. AE has necessarily the same 
                         # amount of clauses as the precondition of the first
-                        # action
+                        # action (effects can't contain or's)
                         for idx, ae_clause in enumerate(copy_ae_cont):  
                             # ae_clause_cont = ae_clause['and']
                             if stat not in ae_clause and stat not in copy_prec1[idx]:
@@ -805,9 +973,15 @@ def main():
             
                 
                 # Add cost if the domain requires it
-                if HASCOST:
-                    combined_action['cost'] = actions[coup[0]]['cost'] + actions[coup[1]]['cost']
-                
+                if HASCOST:                    
+                    combined_cost, combined_operation = merge_costs(actions[coup[0]], actions[coup[1]])
+                    combined_action['cost'] = combined_cost
+                    combined_action["cost_operation"] = combined_operation  # Increase/Decrease
+                    
+                    # New effect, DNF, with the cost added
+                    combined_action_new_effect = introduce_cost(combined_action, arg_data["problem"]["cost_metric"])
+                    combined_action["effect"] = combined_action_new_effect
+                    
                 # Create base name
                 generated_name = str(coup[0] + '_' + coup[1])
                 
@@ -815,7 +989,7 @@ def main():
                 # of it to differentiate
                 if generated_name in name_list:
                     idx = 0
-                    while idx < 100000:
+                    while idx >= 0:
                         final_name = generated_name + "_" + str(idx)
                         if final_name not in name_list:
                             break
@@ -829,7 +1003,11 @@ def main():
             # couple
             all_merged_actions.update(generated_actions)
         
-        arg_data['domain']['actions'].update(all_merged_actions)
+        if len(all_merged_actions) > 0:
+            arg_data['domain']['actions'].update(all_merged_actions)            
+            print("...actions merged succesfully!\n")
+        else:
+            print("...no possible merge found.\n")
         
 # =============================================================================
 # SAVE RESULTS

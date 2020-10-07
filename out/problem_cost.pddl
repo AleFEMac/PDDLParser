@@ -4,7 +4,7 @@
 
 	(:objects)
 
-	(:init (= (total-cost) 0) (check))
+	(:init (= (total-cost) 0))
 
 	(:goal (cake))
 )

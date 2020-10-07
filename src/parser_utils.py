@@ -5,8 +5,6 @@ Created on Mon Sep  9 11:16:10 2019
 @author: Ale
 """
 
-from action_utils import toDNF, partition_recursively, assemble_DNF, compose_partition
-
 def write_domain(file, domain_struct):
     
     domain = "(define (domain "
@@ -25,7 +23,7 @@ def write_domain(file, domain_struct):
         action_d = domain_struct['actions'][action]
         domain += "\n\t(:action " + action + "\n\t\t"
         
-        if 'parameters' in action_d:
+        if 'parameters' in action_d and len(action_d['parameters']) > 0:
             domain += ":parameters ("
             for par in action_d['parameters']:
                 domain += " ?" + par
@@ -34,7 +32,7 @@ def write_domain(file, domain_struct):
         if 'precondition' in action_d:
             domain += ":precondition " + action_d['precondition'] + "\n\t\t"
         
-        domain += ":effect " + action_d['effect'] + "\n\t)\n\t"       
+        domain += ":effect " + action_d['effect'] + "\n\t)\n\t"
     
     domain = domain[:-1] + ")"
 

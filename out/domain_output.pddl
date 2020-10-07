@@ -1,6 +1,6 @@
 (define (domain cake-money)
 
-	(:predicates (ingredients) (no-cake) (cake) (baked-cake) (frosted-cake) (check))
+	(:predicates (ingredients) (no-cake) (cake) (baked-cake) (frosted-cake))
 
 	(:action buy-cake
 		:precondition (not (cake))

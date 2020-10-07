@@ -7,10 +7,9 @@ Created on Wed Aug  7 09:24:47 2019
 
 from utils import ischalnum, make_name, take_enclosed_data, dissect, printd, collection_copy, align, align_dictionary, permutations
 from utils import remove_duplicates, nthkey
-import boolean as bb
-
 # =============================================================================
 # Make couplings of the parameters from two different actions
+# ## DEPRECATED ##
 # =============================================================================
 def couple_params(ac1, ac2):
     
@@ -26,38 +25,64 @@ def couple_params(ac1, ac2):
                 
     return matches
 
-def check_action_compat(exp1, exp2): 
+def check_action_compat(expression_1, expression_2):
     
-    for ex2 in exp2:        
+    for ex2 in expression_2:    # OR-clauses in expression_2  
         admissible = False
         
-        for ex1 in exp1:            
+        for ex1 in expression_1:    # OR-clauses in expression_1
             exp_admissible = True
+            expression_match_found = False
             
-            for stat2 in ex2:                    
-                pos2 = True
+            # Statements in OR-clause from expression_2
+            for stat2 in ex2:             
+                positivity_2 = True     # Statement positivity
                 
+                # The statement might be under a "not": recover it and change
+                # the statement's positivity                
                 nstat2 = collection_copy(stat2)
                 if nthkey(nstat2) == 'not':
                     nstat2 = nstat2['not'][0]
-                    pos2 = False
+                    positivity_2 = False
                 
+                # Statements in OR-clause from expression_1
                 for stat1 in ex1:                    
-                    pos1 = True
+                    positivity_1 = True     # Statement positivity
                     
+                    # The statement might be under a "not": recover it and change
+                    # the statement's positivity
                     nstat1 = collection_copy(stat1)
                     if nthkey(nstat1) == 'not':
                         nstat1 = nstat1['not'][0]
-                        pos1 = False
+                        positivity_1 = False
                     
-                    if nstat2 == nstat1 and not (pos1 and pos2):
+                    # If a match between predicates is found but they have
+                    # different positivity, return an incompatibility
+                    if nstat2 == nstat1 and not (positivity_1 and positivity_2):
                         exp_admissible = False
                         break
+                    
+                    # If a match is found and the positivities are the same,
+                    # return a compatibility
+                    elif nstat2 == nstat1 and (positivity_1 and positivity_2):
+                        expression_match_found = True
+                        break
                 
-                if not exp_admissible:
+                # Incompatibilities due to lack of appearance of a statement
+                # from the second precondition in the world of the first
+                # action can only happen when the statement is positive
+                # (due to the closed world assumption)
+                if not positivity_2 and not expression_match_found:
+                    expression_match_found = True
+                
+                # If a conflict was found or a positive statement wasn't included
+                # in the world, return an incompatibility
+                if not exp_admissible or (not expression_match_found and positivity_2):
                     break
             
-            if exp_admissible:
+            # The OR-clause from the second expression is acceptable only if
+            # there were no problems
+            if exp_admissible and expression_match_found:
                 admissible = True
         
         if admissible:
@@ -132,6 +157,9 @@ def partition_recursively(string, remove_increase=True):
     
     ss = string.strip()[1:-1].strip()
     
+    if len(ss) == 0:
+        return {}
+    
     if '(' not in ss:
         return {ss.split()[0]: ss.split()[1:]}
     
@@ -158,7 +186,8 @@ def partition_recursively(string, remove_increase=True):
 def compose_partition(level):
     
     comp = ""
-    op = list(level.keys())[0]
+    
+    op = nthkey(level)  #list(level.keys())[0]
     
     if op == "and":
         comp += "(and"
@@ -196,12 +225,12 @@ def classify_parameter(param, exprs, classes=[]):
         for item in exp:                    # Cycle on every item of a statement
                         
             # Get predicate/operator, there is only one per dictionary
-            key = list(item.keys())[0]     
+            key = nthkey(item) #list(item.keys())[0]     
             
             if key == 'not':                # NOT operator case
                 
                 # Take the class being NOT-ed
-                kkey = list(item[key].keys())[0]
+                kkey = nthkey(item[key]) #list(item[key].keys())[0]
                 
                 # It's an acceptable class
                 if kkey in classes:
@@ -220,7 +249,7 @@ def to_boolean(level):
     if level == {}:
         return {}
     
-    op = list(level.keys())[0]
+    op = nthkey(level)  #list(level.keys())[0]
     expression = ""
     
     if op == "and":
@@ -257,7 +286,7 @@ def apply_negative(col):
     res = []
     
     for c in col:
-        op = list(c.keys())[0]
+        op = nthkey(c)  #list(c.keys())[0]
         if op == 'not':
             res.append(c[op])
         else:
@@ -271,7 +300,7 @@ def toDNF(level, params={}):
     if level == {}:
         return []
 
-    op = list(level.keys())[0]
+    op = nthkey(level)  #list(level.keys())[0]
     
     
     if op == "and":
@@ -339,6 +368,8 @@ def toDNF(level, params={}):
     
     return
 
+# Turns a non-partitioned DNF to a partitioned DNF
+# or_clauses: non-partitioned DNF list of lists of clauses
 def assemble_DNF(or_clauses):
     
     if len(or_clauses) == 0:
@@ -359,14 +390,19 @@ def assemble_DNF(or_clauses):
     
     return expression
 
+
+# Applies an effect to an existing world
+# prec: non-partitioned DNF
+# eff: partitioned form
+# return: partitioned DNF
 def apply_effect(prec, eff):
-    
+    # Initialize a new list of or-clauses for the new world
     or_clause_list = []
     
     # Copy the effect and differentiate between different predicates under an
-    # AND operator and a single effect clause
+    # AND operator and a single effect clause (effects can't have ORs)
     actual_eff = collection_copy(eff)
-    if list(actual_eff.keys())[0] == 'and':
+    if nthkey(actual_eff) == 'and':
         actual_eff = actual_eff['and']
     else:
         actual_eff = [actual_eff]
@@ -376,27 +412,28 @@ def apply_effect(prec, eff):
         
         eff_copy = collection_copy(actual_eff)
         
-        # Cicle on all elements of the AND clause
+        # Cicle on all elements of the AND clause (predicates)
         for prec_clause in and_clause:
             
-            prec_clause_operator = list(prec_clause.keys())[0]
+            # Take the name of the predicate and its parameters
+            prec_clause_operator = nthkey(prec_clause)  #list(prec_clause.keys())[0]
             prec_clause_content = prec_clause[prec_clause_operator]
             
             added_effect = False         
             
+            # The predicate might be inside of a NOT operator
             if prec_clause_operator == 'not':
-                prec_clause_operator = list(prec_clause_content[0].keys())[0]
+                prec_clause_operator = nthkey(prec_clause_content[0])   #list(prec_clause_content[0].keys())[0]
                 prec_clause_content = prec_clause_content[0][prec_clause_operator]
                         
             for eff_clause in actual_eff:
                 
-                eff_clause_operator = list(eff_clause.keys())[0]
-                eff_clause_content = eff_clause[eff_clause_operator]                
+                eff_clause_operator = nthkey(eff_clause)    #list(eff_clause.keys())[0]
+                eff_clause_content = eff_clause[eff_clause_operator]
                 
                 if eff_clause_operator == 'not':
-                    eff_clause_operator = list(eff_clause_content[0].keys())[0]
+                    eff_clause_operator = nthkey(eff_clause_content[0]) #list(eff_clause_content[0].keys())[0]
                     eff_clause_content = eff_clause_content[0][eff_clause_operator]
-                
                 
                 if eff_clause_operator == prec_clause_operator and eff_clause_content == prec_clause_content:
                     and_clause_list.append(eff_clause)
@@ -417,11 +454,17 @@ def apply_effect(prec, eff):
             or_clause_list.append({'and':and_clause_list})
         else:
             or_clause_list.append(and_clause_list)
-    
+            
     if len(or_clause_list) > 1:
         return {'or':or_clause_list}
     elif len(or_clause_list) == 1:
-        return or_clause_list[0]
+        if type(or_clause_list[0]) == list:
+            return or_clause_list[0][0]
+        elif type(or_clause_list[0]) == dict:
+            return or_clause_list[0]
+        else:
+            print("Error during effect application")
+            return {}
     else:
         return {}
 
@@ -436,12 +479,13 @@ def associate_parameter(param, expression):
         return associations
     
     c_param = str('?' + param)              # Add the '?' to the parameter
-    operator = list(expression.keys())[0]   # Header of the level
+    operator = nthkey(expression)           # Header of the level
     level = expression[operator]            # Arguments of the level parameter
+    
     
     # Iterate over all arguments of the level parameter
     for stat in level:
-        
+                
         if type(stat) != dict:              # Parameter case
             if stat == c_param and operator.split('_')[0] == "type":
                 associations.add(operator)
@@ -484,7 +528,7 @@ def replace_params(level, par_maps, middlemen={}):
     if len(level) == 0:
         return
         
-    operator = list(level.keys())[0]
+    operator = nthkey(level)    #list(level.keys())[0]
     content = level[operator]
     
     if operator in ['or', 'and', 'not']:
@@ -509,7 +553,7 @@ def action_cons_check(level, params, predics):
         if len(level) == 0:
             return False, 0, ()       
         
-        head = list(level.keys())[0]
+        head = nthkey(level)    #list(level.keys())[0]
         body = level[head]
         
         if head not in ['and', 'or', 'not']:
@@ -528,23 +572,33 @@ def action_cons_check(level, params, predics):
                     return False, rerr, rpar
         
         return True, None, None
+        
+# =============================================================================
+#     assert len(params) > 0    
+# =============================================================================
     
-    assert len(params) > 0
-    
-    prt_level = partition_recursively(level)
-    dnf_level = assemble_DNF(toDNF(prt_level, params))
-    if len(dnf_level) == 0:
-        return False
+        
+    partitioned_level = partition_recursively(level)
+    dnf_level = assemble_DNF(toDNF(partitioned_level, params))
 
     return action_cons_check_in(dnf_level, params, predics)
 
 # =============================================================================
 # Check action preconditions without using the boolean module
 # =============================================================================
-def check_action_precs(act):
+def check_action_formula(act, formula):
     
-    prec = collection_copy(act['precondition'])
-    prec_dnf = toDNF(partition_recursively(prec))
+    if formula not in act:
+        if formula == "precondition":
+            return True
+        else:
+            return False
+    
+    prec = collection_copy(act[formula])
+    prec_dnf = toDNF(partition_recursively(prec, False))
+    
+    if len(prec_dnf) == 0:
+        return True
     
     acceptable = True
     
@@ -577,10 +631,170 @@ def check_action_precs(act):
         
     return False
 
-def check_pointlessness(act1, act2):
+def check_pointlessness(act1, act2, param_mapping, param_match):
     
+    # Copy the actions to avoid side-effect related problems    
+    copy_act1 = collection_copy(act1)
+    copy_act2 = collection_copy(act2)
+    
+    # Extract preconditions and effects from actions    
+    precondition_act1 = copy_act1["precondition"]
+    effect_act1 = copy_act1["effect"]
+    precondition_act2 = copy_act2["precondition"]
+    effect_act2 = copy_act2["effect"]
+    
+    # Turn preconditions and effects in DNF
+    dnf_precondition_act1 = toDNF(partition_recursively(precondition_act1))
+    dnf_effect_act1 = toDNF(partition_recursively(effect_act1))
+    dnf_precondition_act2 = toDNF(partition_recursively(precondition_act2))
+    dnf_effect_act2 = toDNF(partition_recursively(effect_act2))
+    
+    # Obtain partitioned DNF of preconditions and effects
+    pdnf_precondition_act1 = assemble_DNF(dnf_precondition_act1)
+    pdnf_effect_act1 = assemble_DNF(dnf_effect_act1)
+    pdnf_precondition_act2 = assemble_DNF(dnf_precondition_act2)
+    pdnf_effect_act2 = assemble_DNF(dnf_effect_act2)
+    
+    # Replace all parameters with their general version
+    replace_params(pdnf_precondition_act1, param_mapping, param_match)
+    replace_params(pdnf_effect_act1, param_mapping, param_match)
+    replace_params(pdnf_precondition_act2, param_mapping, param_match)
+    replace_params(pdnf_effect_act2, param_mapping, param_match)
+    
+    # Apply the effect of the first action to its precondition, then convert
+    # to DNF
+    world_1 = apply_effect(dnf_precondition_act1, pdnf_effect_act1)
+    world_1_dnf = toDNF(world_1)
+    
+    # Apply the effect of the second acitons to world 1, then convert to DNF
+    world_2 = apply_effect(world_1_dnf, pdnf_effect_act2)
+    world_2_dnf = toDNF(world_2)
+    
+    # Check if the end results of the merging of the 2 actions brings the world
+    # 2 back to either world 0 (action 1 precondition) or to world 1, making
+    # the merged action pointless
+    world_0_independence = False
+    world_1_independence = False
+    
+    # WORLD 0 TEST
+    # Loop over OR-clauses of world 2
+    for or_clause_2 in world_2_dnf:                
+        
+        clause_not_present = False
+        
+        for or_clause_0 in dnf_precondition_act1:
+            
+            if len(or_clause_2) != len(or_clause_0):
+                clause_not_present = True
+                break
+            
+            for statement_2 in or_clause_2:
+                
+                statement_found = False
+                
+                positivity_2 = True
+                
+                statement_2_head = nthkey(statement_2)
+                statement_2_body = statement_2[statement_2_head]
+                
+                if statement_2_head == "not":
+                    statement_2_head = nthkey(statement_2_body[0])
+                    statement_2_body = statement_2_body[0][statement_2_head]
+                    positivity_2 = False
+                    
+                final_statement_2 = {statement_2_head: statement_2_body}
+                
+                for statement_0 in or_clause_0:
+                    
+                    positivity_0 = True
+
+                    statement_0_head = nthkey(statement_0)
+                    statement_0_body = statement_0[statement_0_head]
+                    
+                    if statement_0_head == "not":
+                        statement_0_head = nthkey(statement_0_body[0])
+                        statement_0_body = statement_0_body[0][statement_0_head]
+                        positivity_0 = False      
+                        
+                    final_statement_0 = {statement_0_head: statement_0_body}
+                    
+                    # Statement from world 2 found in world 0
+                    if final_statement_2 == final_statement_0 and (positivity_0 == positivity_2):
+                        statement_found = True
+                    
+                if not statement_found:
+                    clause_not_present = True
+                    break
+            
+            if clause_not_present:
+                break
+        
+        if clause_not_present:
+            world_0_independence = True
         
     
+    # WORLD 1 TEST
+    # Loop over OR-clauses of world 2
+    for or_clause_2 in world_2_dnf:                
+        
+        clause_not_present = False
+        
+        for or_clause_1 in dnf_precondition_act1:
+            
+            if len(or_clause_2) != len(or_clause_1):
+                clause_not_present = True
+                break
+            
+            for statement_2 in or_clause_2:
+                
+                statement_found = False
+                
+                positivity_2 = True
+                
+                statement_2_head = nthkey(statement_2)
+                statement_2_body = statement_2[statement_2_head]
+                
+                if statement_2_head == "not":
+                    statement_2_head = nthkey(statement_2_body[0])
+                    statement_2_body = statement_2_body[0][statement_2_head]
+                    positivity_2 = False
+                    
+                final_statement_2 = {statement_2_head: statement_2_body}
+                
+                for statement_1 in or_clause_1:
+                                    
+                    positivity_1 = True
+
+                    statement_1_head = nthkey(statement_1)
+                    statement_1_body = statement_1[statement_1_head]
+                    
+                    if statement_1_head == "not":
+                        statement_1_head = nthkey(statement_1_body[0])
+                        statement_1_body = statement_1_body[0][statement_1_head]
+                        positivity_1 = False      
+                        
+                    final_statement_1 = {statement_1_head: statement_1_body}
+                    
+                    # Statement from world 2 found in world 0
+                    if final_statement_2 == final_statement_1 and (positivity_1 == positivity_2):
+                        statement_found = True
+                    
+                if not statement_found:
+                    clause_not_present = True
+                    break
+            
+            if clause_not_present:
+                break
+        
+        if clause_not_present:
+            world_1_independence = True
+    
+    return (world_0_independence and world_1_independence)
+
+    
+    
+    
+        
     return True
     
     
@@ -610,16 +824,25 @@ actions = {
                  'effect': '(at ?rob ?to)'},
         'a4': {'parameters': ['rob', 'to'], 
                  'precondition': '(and (type_robot ?rob) (type_position ?to) (not (on ?rob)) (not (at ?rob ?to)))', 
-                 'effect': '(at ?rob ?to)'}        
+                 'effect': '(at ?rob ?to)'},
+        'a5': {'parameters': ['rob'], 
+                 'precondition': '(and (type_robot ?rob) (not (on ?rob)))', 
+                 'effect': '(on ?rob)'},
+        'a6': {'parameters': ['r'], 
+                 'precondition': '(and (type_robot ?r) (on ?r))', 
+                 'effect': '(not (on ?r))'},
         }
-        
+           
 # =============================================================================
 # a = toDNF(partition_recursively(actions['a4']['precondition']))
 # print(check_action_precs_2(actions['a4']))
 # =============================================================================
        
 # =============================================================================
-# names = [list(actions.keys())[3], list(actions.keys())[4]]
+# names = [list(actions.keys())[0], list(actions.keys())[1]]
+# =============================================================================
+# =============================================================================
+# names = ['a5', 'a6']
 # pa1 = actions[names[0]]['parameters']
 # pa2 = actions[names[1]]['parameters']
 # pr1 = partition_recursively(actions[names[0]]['precondition'])
@@ -663,7 +886,6 @@ actions = {
 #     inv_match = {}
 #     for key in match:
 #         inv_match[match[key]] = key
-#         print(">", key)
 #     
 #     for couple in match:
 #         par = "par_" + str(idx)
@@ -708,9 +930,12 @@ actions = {
 #     copy_eff2 = toDNF(copy_eff2)
 #     
 #     # Doability check
-#     action_compat = check_action_compat(toDNF(copy_ae), copy_prec2)
-#     
 #     copy_ae_cont = toDNF(copy_ae)
+#     action_compat = check_action_compat(copy_ae_cont, copy_prec2)
+#     
+#     
+#     check_pointlessness(actions[names[0]], actions[names[1]], inv_parametrization, inv_match)
+#     
 #         
 #     
 #     for clause in copy_prec2:       # OR clause 
@@ -731,18 +956,15 @@ actions = {
 #     
 #     final_prec = collection_copy(copy_prec1)
 #     final_effect = apply_effect(copy_eff1, copy_eff2)
-#     
-#     print(">>>", final_prec)
-#     
+#         
 #     combined_action = {'parameters':list(parametrization.keys()),
 #                        'precondition':assemble_DNF(final_prec), 
 #                        'effect':final_effect}
 #     
 #     generated_actions[str(names[0] + '_' + names[1] + '_' + str(a_idx))] = combined_action
-# 
-# printd(generated_actions)
-#     
 # =============================================================================
+
+    
         
     
     

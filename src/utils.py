@@ -25,10 +25,10 @@ def collection_copy(col):
         return col
 
 def printd(diction):
-    print("(")
+    print("{")
     for i in diction:
         print(str(i) + ":", diction[i])
-    print(")")
+    print("}")
 
 def ischalnum(string, puncts=['.']):
     for c in string:
@@ -73,12 +73,16 @@ def take_enclosed_data(data, starter="(", ender=")", ignore_inside=[], no_outlie
     return data_l
             
 def check_correctness(data, params):
+    
+    
         
     if data.count('(') != data.count(')'):
         return False   
     
     inside = data[1:-1].strip()
     
+    
+        
     if inside[0] == '(' and inside[-1] == ')':
         print("\n[ERROR] Use of nested parentheses detected in\n'" + data + "\nDo not use statements of the type (( xxx ))")
         return False
@@ -87,8 +91,16 @@ def check_correctness(data, params):
     
     if data.count('(') == 1 and data.count(')') == 1:
         body = inside.split()[1:]
-    elif name == 'increase':
-        cost = inside.split()[-1]
+    elif name in ['increase', 'decrease']:
+        
+        inside_list = inside.split()
+        
+        if len(inside_list) != 3:
+            print("[ERROR] The cost function " + name + " operation in one of the actions was incorrectly written.\nIt must follow the format\n'(increase (cost_function) amount)'\nor\n'(increase (cost_function) amount)'\nPlease correct the error.")
+            return False
+        
+        cost = inside_list[-1]
+        
         try:
             cost = int(cost)
         except:
@@ -96,18 +108,37 @@ def check_correctness(data, params):
             return False 
         if cost < 1:
             print("\n[ERROR] Cost error detected in\n'" + data + "'\nThe cost of the action is non-positive.\nPlease correct the error.")
-            return False  
-        body = take_enclosed_data(inside)[0]
-        if body != '(total-cost)':
-            print("\n[ERROR] Expected\n'total-cost'\nin action cost definition\n'" + data + "'\ngot\n'" + body + "'\ninstead.\nPlease correct the error.")
             return False
+        
+        cost_function = inside_list[1]
+        
+        if cost_function[0] != '(' or cost_function[-1] != ')':
+            print("\n[ERROR] Cost modification function\n'" + body + "'\nis not enclosed in parentheses.\nPlease enclose it in parentheses.")
+            return False
+        
+        cost_function = cost_function[1:-1]
+        
+        if 'cost_function' in params['domain'] and cost_function != params['domain']['cost_function']:
+            print("\n[ERROR] Found cost function\n'" + cost_function + "'\nin an action, while previous cost function was defined as\n'" + params['domain']['cost_function']+ "'\nPlease correct one of the two.")
+            return False
+        else:
+            params['domain']['cost_function'] = cost_function # TODO?
+            
+# =============================================================================
+#         body = take_enclosed_data(inside)[0]
+#         if body != '(total-cost)':
+#             print("\n[ERROR] Expected\n'total-cost'\nin action cost definition\n'" + data + "'\ngot\n'" + body + "'\ninstead.\nPlease correct the error.")
+#             return False
+# =============================================================================
         return True
+    elif name == '=':
+        pass # TODO? Not necessary to analyze, just skip it
     else:
         body = take_enclosed_data(data.replace(name, '', 1)[1:-1], no_outliers=True)
         if type(body) != list:
             print("\n[ERROR] Out-of-parentheses element\n'" + body + "'\nfound in statement\n'" + data + "'\nPlease encapsulate all arguments of a statement with their respective arguments in a set of parentheses.")
             return False
-    
+        
     if name in params['predefined']:
         pred = params['predefined'][name]
         
@@ -126,9 +157,14 @@ def check_correctness(data, params):
         if len(body) != len(pred):
             print("\n[ERROR] Predicate\n'" + name + "'\nexpected\n" + str(len(pred)) + "\nparameters, while\n" + str(len(body)) + "\nwere encountered in\n'" + data + "'")
             return False
-    elif name == 'total-cost':
-        return True
-    else:
+    elif name == '=':
+        pass #TODO? Not necessary to analyze, just skip it
+    else:        
+        if 'cost_function' in params['domain']:
+            data_inside = data[1:-1]
+            if data_inside == params['domain']['cost_function']:
+                return True
+        
         print("\n[ERROR] Statement\n'" + name + "'\nencountered in\n'" + data + "'\nis unknown. Please check the spelling or, should it be a predicate, its inclusion in the ':predicates' statement.")
         return False
     
@@ -190,7 +226,7 @@ def align_dictionary(d):
         out = []
         
         d_copy = collection_copy(d)     # Copy the dict to prevent side effect
-        head = list(d_copy.keys())[0]   # Recover parameter
+        head = nthkey(d_copy)           # Recover parameter
         cont = d_copy.pop(head, None)   # Recover list of possible matches
         
         
