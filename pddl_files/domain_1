@@ -1,0 +1,14 @@
+(define (domain rob-domain) ;domain definition
+
+	;predicates
+	(:predicates (type_robot ?r) (type_location ?l) (on ?r) (at ?r ?l))
+
+	;actions
+
+
+  (:action move
+		:parameters (?r ?loc)
+		:precondition (and (type_robot ?rob) (?type_location ?loc) (on ?rob) (not (at ?r ?loc)))
+		:effect (at ?r ?loc)
+  )
+)

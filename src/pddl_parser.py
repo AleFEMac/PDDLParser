@@ -23,13 +23,14 @@ PDDLPRB = "problem_0.pddl"
 MSGFILE = "messages.txt"
 PRDFILE = "predefined.txt"
 ODOMFIL = PDDLDOM #"domain_cost.pddl"    #"domain_output.pddl"
-OPRBFIL = PDDLPRB #"problem_cost.pddl"   # problem_output.pddl"
+OPRBFIL = PDDLPRB #"problem_cost.pddl"   #"problem_output.pddl"
 
 can_write = True
 can_merge_actions = True
 LENIENT = True
 STRICT = False
 HASCOST = True
+GUARANTYPES = True
 PERMPUN = ['_', '-']
 RESVNAMES = ['action', 'define', 'domain', 'predicates', 'parameter', 'precondition', 'effect']
 
@@ -217,13 +218,15 @@ def parse_element(element, arg_data, mode='domain'):
 
                     out = out[0][1:-1]
 
-                    if out[0] == '(' or out[-1] == ')':
-                        if lenient:
-                            print("\n[WARNING] Multiple set of parentheses detected in the parameters definition of the action\n'" + action_struct['name'] + "'\nThe required format is\n':parameters (?param1 ?param2 ... ?paramN)'\nMake sure not to use multiple sets of parentheses.\n")
-                            out = out.replace('(', '').replace(')', '')
-                        else:
-                            print("\n[WARNING] Multiple set of parentheses detected in the parameters definition of the action\n'" + action_struct['name'] + "'\nThe required format is\n':parameters (?param1 ?param2 ... ?paramN)'\nMake sure not to use multiple sets of parentheses.")
-                            return False
+
+                    if len(out.strip()) > 0:
+                        if out[0] == '(' or out[-1] == ')':
+                            if lenient:
+                                print("\n[WARNING] Multiple set of parentheses detected in the parameters definition of the action\n'" + action_struct['name'] + "'\nThe required format is\n':parameters (?param1 ?param2 ... ?paramN)'\nMake sure not to use multiple sets of parentheses.\n")
+                                out = out.replace('(', '').replace(')', '')
+                            else:
+                                print("\n[WARNING] Multiple set of parentheses detected in the parameters definition of the action\n'" + action_struct['name'] + "'\nThe required format is\n':parameters (?param1 ?param2 ... ?paramN)'\nMake sure not to use multiple sets of parentheses.")
+                                return False
 
                     out = out.split()
 
@@ -487,10 +490,13 @@ def parse_element(element, arg_data, mode='domain'):
             for inst in init_stats:
                 inst_cln = inst[1:-1].strip()
 
+                #print(inst_cln.split()[0])
+
+
                 # Parentheses have already been removed, multiple sets of
                 # concentric parentheses are an error
-                if inst_cln[0] != '=' and ('(' in inst_cln or ')' in inst_cln):
-                    print("\n[ERROR] Multiple sets of parentheses detected in the problem definition.\nThe init section ust follow the format\n'(:init (predicate_1 parameter_1 ... parameter_N) ... (predicate_M parameter_1 ... parameter_N))'")
+                if inst_cln.split()[0] not in ["not", '='] and ('(' in inst_cln or ')' in inst_cln):
+                    print("\n[ERROR] Multiple sets of parentheses detected in the problem definition.\nThe init section must follow the format\n'(:init (predicate_1 parameter_1 ... parameter_N) ... (predicate_M parameter_1 ... parameter_N))'")
                     return False
                 elif inst_cln[0] == '=':
                     if not HASCOST:
@@ -525,10 +531,10 @@ def parse_element(element, arg_data, mode='domain'):
 
 
                 # Init predicates have the format '(pred par1 .. parN)'
-                pred = inst_cln.split()[0]
+                pred = inst_cln.split()[0].strip()
                 pars = inst_cln.split()[1:]
 
-                if pred != '=':
+                if pred not in ['=', "not"]:
                     # Check if the predicate was defined in the domain
                     if pred not in arg_data['domain']['predicates']:
                         print("\n[ERROR] The init section of the problem is using the predicate\n'" + pred + "'\nwithout prior definition.\nCheck for spelling mistakes or define the predicate in the 'predicates' section of the domain.")
@@ -562,13 +568,34 @@ def parse_element(element, arg_data, mode='domain'):
             element2 = element[1:-1].strip()
             elem3 = element2.replace(":goal", '', 1).strip()
 
+            elem3_original = elem3
+
+            if elem3.strip()[:len("(and")] == "(and":
+                elem3_clean = elem3.strip()
+                if elem3_clean[0] != '(' or elem3_clean[-1] != ')':
+                    print("\n[ERROR] Incorrect enclosing in goal with AND operator.\nPlease make sure you follow the format\n'(:goal (and (predicate_1 parameter_1 ... parameter_N) ... (predicate_M parameter_1 ... parameter_N)))'")
+                    return False
+
+                elem3 = elem3_clean[len("(and"):-1]
+
+
             goal_stats = take_enclosed_data(elem3)
             for gost in goal_stats:
                 gost_cln = gost[1:-1].strip()
 
-                if '(' in gost_cln or ')' in gost_cln:
-                    print("\n[ERROR] Multiple sets of parentheses detected in the problem definition.\nThe goal section ust follow the format\n'(:goal (predicate_1 parameter_1 ... parameter_N) ... (predicate_M parameter_1 ... parameter_N))'")
+                if gost_cln[:len("not")] != "not" and ('(' in gost_cln or ')' in gost_cln):
+                    print("\n[ERROR] Multiple sets of parentheses detected in the problem definition.\nThe goal section must follow the format\n'(:goal (and (predicate_1 parameter_1 ... parameter_N) ... (predicate_M parameter_1 ... parameter_N)))'")
                     return False
+
+                if gost_cln[len("not"):] == "not":
+                    gost_cln = gost_cln[:len("not")].strip()
+
+                    if gost_cln[0] != '(' or gost_cln[-1] != ')':
+                        print("\n[ERROR] Predicate\n'" + gost_cln + "'\nincluded in a NOT operator isn't enclosed by parenheses.\nPlease make sure you follow the format\n'(not (predicate_1 parameter_1 ... parameter_N))'")
+                        return False
+
+                    gost_cln= gost_cln[1:-1]
+
 
                 pred = gost_cln.split()[0]
                 pars = gost_cln.split()[1:]
@@ -590,7 +617,7 @@ def parse_element(element, arg_data, mode='domain'):
             if not out:
                 return False
 
-            arg_data['problem']['goal'] = elem3
+            arg_data['problem']['goal'] = elem3_original
         elif element[:len("(:metric")] == "(:metric": # TODO Maybe done
             element_cln = element.strip()
 
@@ -953,7 +980,7 @@ def main():
                 copy_eff2 = toDNF(copy_eff2)
 
                 #TODO: SHOULD WORK NOW
-                action_compat = check_action_compat(toDNF(copy_ae), copy_prec2, STRICT)
+                action_compat = check_action_compat(toDNF(copy_ae), copy_prec2, STRICT, GUARANTYPES)
                 if not action_compat:
                     continue
 

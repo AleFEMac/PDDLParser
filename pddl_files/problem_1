@@ -1,0 +1,14 @@
+(define (problem rob-problem)
+
+	(:domain rob-domain)
+
+	(:objects rob1 loc1)
+
+	(:init (type_robot rob1) ;initialization of the problem
+    (type_location loc1)
+		(on rob1)
+    (not (at rob1 loc1))
+	) ;end of init
+
+	(:goal (at rob1 loc1))
+)

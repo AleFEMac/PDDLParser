@@ -26,7 +26,7 @@ def couple_params(ac1, ac2):
     return matches
 
 
-def check_action_compat(expression_1, expression_2, strict):
+def check_action_compat(expression_1, expression_2, strict, guarantee_types):
 
     or_clause_validation_list = [0 for x in expression_2]
 
@@ -51,9 +51,15 @@ def check_action_compat(expression_1, expression_2, strict):
                     nstat2 = nstat2['not'][0]
                     positivity_2 = False
 
+
                 # Statements in OR-clause from expression_1
                 for stat1 in ex1:
                     positivity_1 = True     # Statement positivity
+
+                    if guarantee_types and positivity_2 and nthkey(nstat2)[:len("type_")] == "type_":
+                        expression_match_found = True
+                        validated_statements += 1
+                        break
 
                     # The statement might be under a "not": recover it and change
                     # the statement's positivity
@@ -61,6 +67,7 @@ def check_action_compat(expression_1, expression_2, strict):
                     if nthkey(nstat1) == 'not':
                         nstat1 = nstat1['not'][0]
                         positivity_1 = False
+
 
                     # If a match between predicates is found but they have
                     # different positivity, return an incompatibility
@@ -95,23 +102,20 @@ def check_action_compat(expression_1, expression_2, strict):
                     breakoff = True
                     break
 
-                if not positivity_2 and not expression_match_found:
-                    validated_statements += 1
-
             if breakoff == True:
                 continue
 
-            if validated_statements == len(ex1):
+            if validated_statements == len(ex2):
                 complete_validation_num += 1
-
 
         or_clause_validation_list[idx] = complete_validation_num
 
+    #print(expression_1, '\n', expression_2, '\n', or_clause_validation_list)
 
     if strict:
         discrepancy_found = False
         for validations in or_clause_validation_list:
-            if validation != len(expression_1):
+            if validations != len(expression_1):
                 discrepancy_found = True
         return not discrepancy_found
     else:
