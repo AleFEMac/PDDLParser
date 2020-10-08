@@ -7,40 +7,46 @@ Created on Wed Aug  7 09:24:47 2019
 
 from utils import ischalnum, make_name, take_enclosed_data, dissect, printd, collection_copy, align, align_dictionary, permutations
 from utils import remove_duplicates, nthkey
-# =============================================================================
-# Make couplings of the parameters from two different actions
-# ## DEPRECATED ##
-# =============================================================================
-def couple_params(ac1, ac2):
-
-    matches = {}
-    matched = []
-
-    for p in ac1:
-        matches[p] = []
-        for pp in ac2:
-            if ac2[pp].issubset(ac1[p]):
-                matches[p].append(pp)
-                matched.append(pp)
-
-    return matches
 
 
+
+# Verifies that two actions can be logically fused. To do so, the effect of the
+# first action is applied to its precondition, and the result is used to
+# verify the precondition of the second action.
+# @param expression_1 - list, DNF of the "world" after the first acton
+# @param expression_2 - list, DNF of the precondition of the second action
+# @param strict - boolean, the strictness; if set to True, two actions are
+#   considered compatible iff every OR-clause of the second expression is
+#   validated by every OR-clause of the first (ie. none of its predicates cause
+#   conflicts with any predicate of the first). If set to False, two action
+#   will be compatible if every OR-clause of the second is at validated by at
+#   least one OR-clause from the first. The strict is extremely restrictive,
+#   but should guarantee that no actions are fused with inconsistencies.
+# @param guarantee_types - boolean, if set to True, type predicates (predicates
+#   starting with the label "type_") are considered always found in the first
+#   world. It helps with actions where the second action has more type predicates
+#   than the first
 def check_action_compat(expression_1, expression_2, strict, guarantee_types):
 
+    # How many clauses of the first world validate each OR-clause of the
+    # second precondition
     or_clause_validation_list = [0 for x in expression_2]
 
-    for idx, ex2 in enumerate(expression_2):    # OR-clauses in expression_2
+    # Loop over the OR-clauses of the secon precondition
+    for idx, or_clause_2 in enumerate(expression_2):
 
+        # How many OR-clauses from world 1 validate this clause
         complete_validation_num = 0
 
-        for ex1 in expression_1:    # OR-clauses in expression_1
+        # Loop over OR-clauses of the first world
+        for or_clause_1 in expression_1:    # OR-clauses in expression_1
 
+            # Number of validated predicates from the current OR-clause 2
             validated_statements = 0
             breakoff = False
 
             # Statements in OR-clause from expression_2
-            for stat2 in ex2:
+            for stat2 in or_clause_2:
                 positivity_2 = True     # Statement positivity
                 expression_match_found = False
 
@@ -53,9 +59,10 @@ def check_action_compat(expression_1, expression_2, strict, guarantee_types):
 
 
                 # Statements in OR-clause from expression_1
-                for stat1 in ex1:
+                for stat1 in or_clause_1:
                     positivity_1 = True     # Statement positivity
 
+                    # Type guarantee
                     if guarantee_types and positivity_2 and nthkey(nstat2)[:len("type_")] == "type_":
                         expression_match_found = True
                         validated_statements += 1
@@ -102,16 +109,19 @@ def check_action_compat(expression_1, expression_2, strict, guarantee_types):
                     breakoff = True
                     break
 
+            # Breakoff: go to the next OR-clause
             if breakoff == True:
                 continue
 
-            if validated_statements == len(ex2):
+            # If all positive statements were found and no conflict arose, the
+            # Or-clause 1 validated the OR-clause 2
+            if validated_statements == len(or_clause_2):
                 complete_validation_num += 1
 
+        # Save the number of validating clauses
         or_clause_validation_list[idx] = complete_validation_num
 
-    #print(expression_1, '\n', expression_2, '\n', or_clause_validation_list)
-
+    # Strictness check
     if strict:
         discrepancy_found = False
         for validations in or_clause_validation_list:
@@ -127,101 +137,6 @@ def check_action_compat(expression_1, expression_2, strict, guarantee_types):
 
     return False
 
-def old_check_action_compat(expression_1, expression_2):
-
-    for ex2 in expression_2:    # OR-clauses in expression_2
-        admissible = False
-
-        for ex1 in expression_1:    # OR-clauses in expression_1
-            exp_admissible = True
-            expression_match_found = False
-
-            validated_params = 0
-
-            # Statements in OR-clause from expression_2
-            for stat2 in ex2:
-                positivity_2 = True     # Statement positivity
-
-                # The statement might be under a "not": recover it and change
-                # the statement's positivity
-                nstat2 = collection_copy(stat2)
-                if nthkey(nstat2) == 'not':
-                    nstat2 = nstat2['not'][0]
-                    positivity_2 = False
-
-                print("N2", nstat2, positivity_2)
-
-                # Statements in OR-clause from expression_1
-                for stat1 in ex1:
-                    positivity_1 = True     # Statement positivity
-
-                    # The statement might be under a "not": recover it and change
-                    # the statement's positivity
-                    nstat1 = collection_copy(stat1)
-                    if nthkey(nstat1) == 'not':
-                        nstat1 = nstat1['not'][0]
-                        positivity_1 = False
-
-                    print("N1", nstat1, positivity_1)
-
-                    # If a match between predicates is found but they have
-                    # different positivity, return an incompatibility
-                    if nstat2 == nstat1 and not (positivity_1 and positivity_2):
-                        exp_admissible = False
-                        break
-
-                    # If a match is found and the positivities are the same,
-                    # return a compatibility
-                    elif nstat2 == nstat1 and (positivity_1 and positivity_2):
-                        expression_match_found = True
-                        validated_params += 1
-                        print("NN", nstat1, nstat2)
-                        break
-
-
-                # Incompatibilities due to lack of appearance of a statement
-                # from the second precondition in the world of the first
-                # action can only happen when the statement is positive
-                # (due to the closed world assumption)
-                if not positivity_2 and not expression_match_found:
-                    expression_match_found = True
-
-                # If a conflict was found or a positive statement wasn't included
-                # in the world, return an incompatibility
-                if not exp_admissible or (not expression_match_found and positivity_2):
-                    admissible = False
-                    break
-
-            # The OR-clause from the second expression is acceptable only if
-            # there were no problems
-            if exp_admissible and expression_match_found:
-                admissible = True
-
-        if not admissible:
-            return False
-
-    return False
-
-def combine_actions(a1, a2, par_dict, hascost=True):
-
-    ea1 = a1['effect']
-    ea2 = a2['effect']
-
-    ne1 = compose_partition(partition_recursively(ea1))
-    ne2 = compose_partition(partition_recursively(ea2))
-
-    a12 = {
-        'parameters': list(par_dict.keys()),
-        'precondition': "(or " + a1['precondition'] + " (and " + a1['effect'] + ' ' + a2['precondition'] + ") )",
-        'effect': '(and ' + ne1.replace("  ", " ") + "   " + ne2.replace("  ", " ") + " )"
-    }
-
-    if hascost:
-        tot_cost = a1['cost'] + a2['cost']
-        a12['cost'] = tot_cost
-        a12['effect'] = a12['effect'][:-1]  + "(increase (total-cost) " + str(tot_cost) + ") )"
-
-    return a12
 
 def assign_perms(level):
 
@@ -262,31 +177,47 @@ def assign_perms(level):
                     all_perms.append(poss)
     return all_perms
 
+# Partition a string recursively; used to create the tree of operators and
+# predicates which makes up a PDDL formula; each node is represented as a
+# dictionary: the only key is the operator/predicate, its value is a list,
+# containing the dictionaries of the elements depending from the current one;
+# parameters are strings.
+# @param string - string, the current level of the formula
+# @param remove_increase - boolean, whether to ignore the increase/decrease
+#   operation for the cost
+# @return - the dictionary of the current node
 def partition_recursively(string, remove_increase=True):
 
     if string == '':
         return {}
 
+    # Remove parentheses and external spaces
     ss = string.strip()[1:-1].strip()
 
     if len(ss) == 0:
         return {}
 
+    # Predicate case, has the format 'operator predicate_1 ... predicate_N'
     if '(' not in ss:
         return {ss.split()[0]: ss.split()[1:]}
 
+    # Save the operator
     head = ss.split()[0]
 
-    if head == 'increase' and remove_increase:
+    # Cost removal step
+    if head in ['increase', "decrease"] and remove_increase:
         return ""
 
+    # Operator cannot be empty (this was prevented by the first two checks)
     assert head != ""
 
     res = {head:[]}
 
+    # Obtain the list of elements depending on this one
     data_l = take_enclosed_data(ss.replace(head, '', 1).strip())
 
-
+    # Properly insert said elements in the dependency list after partitioning
+    # them as well
     for d in data_l:
         out = partition_recursively(d)
 
@@ -295,12 +226,16 @@ def partition_recursively(string, remove_increase=True):
 
     return res
 
+# Make a PDDL compatible string aout of a boolean tree
+# @param level - dictionary, the current node being processed
+# @return - string, the string of the level
 def compose_partition(level):
 
     comp = ""
 
     op = nthkey(level)  #list(level.keys())[0]
 
+    # Various possible cases; self explanatory
     if op == "and":
         comp += "(and"
         for arg in level[op]:
@@ -325,37 +260,9 @@ def compose_partition(level):
         comp += ")"
         return comp
 
-def classify_parameter(param, exprs, classes=[]):
 
-    if param[0] == '?':
-        param = param[1:]
-
-    param_classes = set()
-
-    for exp in exprs:                       # Cycle on the OR-separated statements
-
-        for item in exp:                    # Cycle on every item of a statement
-
-            # Get predicate/operator, there is only one per dictionary
-            key = nthkey(item) #list(item.keys())[0]
-
-            if key == 'not':                # NOT operator case
-
-                # Take the class being NOT-ed
-                kkey = nthkey(item[key]) #list(item[key].keys())[0]
-
-                # It's an acceptable class
-                if kkey in classes:
-                    param_classes.add(kkey) # Add the class to the set
-
-            else:
-
-                # It's an acceptable class
-                if key in classes:
-                    param_classes.add(key)
-
-    return param_classes
-
+# Makes a boolean formula out of a boolean tree
+# Possibly DEPRECATED
 def to_boolean(level):
 
     if level == {}:
@@ -391,12 +298,17 @@ def to_boolean(level):
 
     return expression
 
+# Used by the toDNF function to create a negative element
+# @param col - list, the dependencies of a node
+# @return - list of dependencies
 def apply_negative(col):
 
     assert type(col) == list
 
     res = []
 
+    # Loop checks if any element is already negative, in which case it removes
+    # the NOT operator
     for c in col:
         op = nthkey(c)  #list(c.keys())[0]
         if op == 'not':
@@ -406,17 +318,22 @@ def apply_negative(col):
 
     return res
 
-
+# Turns a boolean tree into a Disjunctive Normal Form (ie. a set of formulae
+# containing only AND and NOT operators, gathered under a single OR operator)
+# @param level - dictionary, the current node
+# @param params - dictionary, optional parameters
+# @return - list, list of list of predicates in an AND relation
 def toDNF(level, params={}):
 
+    # Base step
     if level == {}:
         return []
 
     op = nthkey(level)  #list(level.keys())[0]
 
-
+    # Recursive steps
     if op == "and":
-        # Create the collection of and-clauses to return
+        # Create the collection of predicates to return
         lvl = [[]]
 
         # Arguments of the current operator
@@ -429,6 +346,7 @@ def toDNF(level, params={}):
             res_og = toDNF(a, params)
             res = collection_copy(res_og)
 
+            # All returned predicates are put together in the same formulae
             for r in res:
                 for rr in lvl:
                     new_lvl.append(rr+r)
@@ -437,7 +355,7 @@ def toDNF(level, params={}):
         return lvl
 
     elif op == "or":
-        # Create the collection of and-clauses to return
+        # Create the collection of predicates to return
         lvl = []
 
         # Arguments of the current operator
@@ -450,6 +368,8 @@ def toDNF(level, params={}):
             res_og = toDNF(a, params)
             res = collection_copy(res_og)
 
+            # Join the disparate lists of parameters from the recursive steps
+            # under a single OR macro-list
             for r in res:
                 new_lvl.append(r)
             lvl = lvl + new_lvl
@@ -457,7 +377,7 @@ def toDNF(level, params={}):
         return lvl
 
     elif op == "not":
-        # Create the collection of and-clauses to return
+        # Create the collection of predicates to return
         lvl = []
 
         a = level[op][0]    # NOT operator can only have a single argument
@@ -467,6 +387,7 @@ def toDNF(level, params={}):
         res_og = toDNF(a, params)
         res = collection_copy(res_og)
 
+        # De Morgan
         pos_al = align(res)
         neg_al = []
         for p in pos_al:
@@ -475,13 +396,16 @@ def toDNF(level, params={}):
 
         return neg_al
 
+    # Return predicates as nodes encased in double sets of parentheses (the inner
+    # one is the AND-clause, the outer one is the OR-clause)
     else:
         return [[level]]
 
     return
 
-# Turns a non-partitioned DNF to a partitioned DNF
-# or_clauses: non-partitioned DNF list of lists of clauses
+# Turns a non-partitioned DNF to a partitioned DNF (boolean tree of a DNF)
+# @param or_clauses - list, non-partitioned DNF list of lists of clauses
+# @return - dictionary, the DNF formatted to a boolean tree
 def assemble_DNF(or_clauses):
 
     if len(or_clauses) == 0:
@@ -489,6 +413,8 @@ def assemble_DNF(or_clauses):
 
     expression = {'or':[]}
 
+    # Every sublist of the OR-clause is put under and AND operator (if it has
+    # more than one predicate) or simply saved by itself
     for clause in or_clauses:
         if len(clause) > 1:
             expression['or'].append({'and':collection_copy(clause)})
@@ -497,6 +423,7 @@ def assemble_DNF(or_clauses):
         else:
             return {}
 
+    # Check if the tree was a single node
     if len(or_clauses) == 1:
         expression = expression['or'][0]
 
@@ -902,176 +829,3 @@ def check_pointlessness(act1, act2, param_mapping, param_match):
             world_1_independence = True
 
     return (world_0_independence and world_1_independence)
-
-
-
-
-
-    return True
-
-
-# =============================================================================
-# TESTING PORTION
-# =============================================================================
-
-
-actions = {
-        'start': {'parameters': ['r', 'b'],
-                 'precondition': '(and (type_robot ?r) (type_battery ?b) (or (on ?r) (and (not (on ?r)) (charged ?b))))',
-                 'effect': '(and (on ?r) (active ?b) (not (disabled ?r)))'},
-        'move': {'parameters': ['rob', 'to'],
-                 'precondition': '(and (type_robot ?rob) (type_position ?to) (on ?rob) (not (at ?rob ?to)))',
-                 'effect': '(at ?rob ?to)'},
-        'scream': {'parameters': ['r'],
-                   'precondition': '(and (type_robot ?r) (silent ?r))',
-                   'effect': '(not (silent ?r))'},
-        'a1': {'parameters': ['rob'],
-                   'precondition': '(type_robot ?rob)',
-                   'effect': '(a_1 ?rob)'},
-        'a2': {'parameters': ['r'],
-                   'precondition': '(type_robot ?r)',
-                   'effect': '(type_robot ?r)'},
-        'a3': {'parameters': ['rob', 'to'],
-                 'precondition': '(and (type_robot ?rob) (type_position ?to) (not (on ?rob)) (not (at ?rob ?to)))',
-                 'effect': '(at ?rob ?to)'},
-        'a4': {'parameters': ['rob', 'to'],
-                 'precondition': '(and (type_robot ?rob) (type_position ?to) (not (on ?rob)) (not (at ?rob ?to)))',
-                 'effect': '(at ?rob ?to)'},
-        'a5': {'parameters': ['rob'],
-                 'precondition': '(and (type_robot ?rob) (not (on ?rob)))',
-                 'effect': '(on ?rob)'},
-        'a6': {'parameters': ['r'],
-                 'precondition': '(and (type_robot ?r) (on ?r))',
-                 'effect': '(not (on ?r))'},
-        }
-
-# =============================================================================
-# a = toDNF(partition_recursively(actions['a4']['precondition']))
-# print(check_action_precs_2(actions['a4']))
-# =============================================================================
-
-# =============================================================================
-# names = [list(actions.keys())[0], list(actions.keys())[1]]
-# =============================================================================
-# =============================================================================
-# names = ['a5', 'a6']
-# pa1 = actions[names[0]]['parameters']
-# pa2 = actions[names[1]]['parameters']
-# pr1 = partition_recursively(actions[names[0]]['precondition'])
-# pr2 = partition_recursively(actions[names[1]]['precondition'])
-# ef1 = partition_recursively(actions[names[0]]['effect'])
-# ef2 = partition_recursively(actions[names[1]]['effect'])
-#
-# p1 = toDNF(pr1)
-# p2 = toDNF(pr2)
-#
-# ae = apply_effect(p1, ef1)
-# a1 = associate_parameters(actions[names[0]]['parameters'], ae)
-# a2 = associate_parameters(actions[names[1]]['parameters'], assemble_DNF(p2))
-#
-# intersections = {}
-# for i in a1:
-#     intersections[i] = []
-#     for j in a2:
-#         if a1[i].intersection(a2[j]) != set():
-#             intersections[i].append(j)
-#
-#
-# inter_permutations = permutations(intersections)
-# aligned_dictionaries = []
-# for perm in inter_permutations:
-#     aligned_dictionaries += align_dictionary(perm)
-# max_matches = pick_max_matches(aligned_dictionaries)
-#
-#
-#
-# max_matches = remove_duplicates(max_matches)
-# all_parametrizations = []
-# all_inv_parametrizations  = []
-# generated_actions = {}
-# for a_idx, match in enumerate(max_matches):
-#     idx = 0
-#     used = []
-#     parametrization = {}
-#     inv_parametrization = {}
-#
-#     inv_match = {}
-#     for key in match:
-#         inv_match[match[key]] = key
-#
-#     for couple in match:
-#         par = "par_" + str(idx)
-#         parametrization[par] = couple
-#         inv_parametrization[couple] = par
-#         used.append(match[couple])
-#         idx += 1
-#
-#     for par1 in pa1:
-#         if par1 not in inv_parametrization:
-#             par = "par_" + str(idx)
-#             parametrization[par] = par1
-#             inv_parametrization[par1] = par
-#             idx += 1
-#
-#     for par2 in pa2:
-#         if par2 not in used:
-#             par = "par_" + str(idx)
-#             parametrization[par] = par2
-#             inv_parametrization[par2] = par
-#             used.append(par2)
-#             idx += 1
-#
-#     all_parametrizations.append(parametrization)
-#     all_inv_parametrizations.append(inv_parametrization)
-#
-#     copy_ae = collection_copy(ae)
-#     replace_params(copy_ae, inv_parametrization)
-#     copy_prec1 = collection_copy(pr1)
-#     replace_params(copy_prec1, inv_parametrization)
-#     copy_prec1 = toDNF(copy_prec1)
-#     copy_prec2 = collection_copy(pr2)
-#     replace_params(copy_prec2, inv_parametrization, inv_match)
-#     copy_prec2 = toDNF(copy_prec2)
-#
-#     copy_eff1 = collection_copy(ef1)
-#     replace_params(copy_eff1, inv_parametrization)
-#     copy_eff1 = toDNF(copy_eff1)
-#
-#     copy_eff2 = collection_copy(ef2)
-#     replace_params(copy_eff2, inv_parametrization, inv_match)
-#     copy_eff2 = toDNF(copy_eff2)
-#
-#     # Doability check
-#     copy_ae_cont = toDNF(copy_ae)
-#     action_compat = check_action_compat(copy_ae_cont, copy_prec2)
-#
-#
-#     check_pointlessness(actions[names[0]], actions[names[1]], inv_parametrization, inv_match)
-#
-#
-#
-#     for clause in copy_prec2:       # OR clause
-#         for stat in clause:         # statement in clause
-#
-#             # Check now if the statement is entailed by the effect of the
-#             # first action. AE has necessarily the same amount of clauses
-#             # as the precondition of the first action
-#             for idx, ae_clause in enumerate(copy_ae_cont):
-#                 # ae_clause_cont = ae_clause['and']
-#                 if stat not in ae_clause and stat not in copy_prec1[idx]:
-#                     copy_prec1[idx].append(stat)
-#
-#     if len(copy_eff2[0]) > 1:
-#         copy_eff2 = {'and':copy_eff2[0]}
-#     else:
-#         copy_eff2 = copy_eff2[0][0]
-#
-#     final_prec = collection_copy(copy_prec1)
-#     final_effect = apply_effect(copy_eff1, copy_eff2)
-#
-#     combined_action = {'parameters':list(parametrization.keys()),
-#                        'precondition':assemble_DNF(final_prec),
-#                        'effect':final_effect}
-#
-#     generated_actions[str(names[0] + '_' + names[1] + '_' + str(a_idx))] = combined_action
-# =============================================================================
