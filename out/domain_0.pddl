@@ -26,21 +26,9 @@
 		:effect (and (not (cake ?par_0)) (not (ingredients ?par_0)) (baked-cake ?par_0) (increase (total-cost) 35))
 	)
 	
-	(:action buy-cake_frost-cake
-		:parameters ( ?par_0 )
-		:precondition (and (type_food ?par_0) (not (cake ?par_0)) (ingredients ?par_0) (baked-cake ?par_0) (not (frosted-cake ?par_0)))
-		:effect (and (cake ?par_0) (not (ingredients ?par_0)) (frosted-cake ?par_0) (not (baked-cake ?par_0)) (increase (total-cost) 37))
-	)
-	
 	(:action bake-cake_frost-cake
 		:parameters ( ?par_0 )
 		:precondition (and (type_food ?par_0) (cake ?par_0) (not (baked-cake ?par_0)) (not (frosted-cake ?par_0)))
 		:effect (and (not (baked-cake ?par_0)) (not (cake ?par_0)) (frosted-cake ?par_0) (increase (total-cost) 22))
-	)
-	
-	(:action frost-cake_buy-cake
-		:parameters ( ?par_0 )
-		:precondition (and (type_food ?par_0) (baked-cake ?par_0) (not (frosted-cake ?par_0)) (not (cake ?par_0)) (ingredients ?par_0))
-		:effect (and (frosted-cake ?par_0) (not (baked-cake ?par_0)) (cake ?par_0) (not (ingredients ?par_0)) (increase (total-cost) 37))
 	)
 )

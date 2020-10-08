@@ -25,18 +25,24 @@ def couple_params(ac1, ac2):
 
     return matches
 
-def check_action_compat(expression_1, expression_2):
 
-    for ex2 in expression_2:    # OR-clauses in expression_2
-        admissible = False
+def check_action_compat(expression_1, expression_2, strict):
+
+    or_clause_validation_list = [0 for x in expression_2]
+
+    for idx, ex2 in enumerate(expression_2):    # OR-clauses in expression_2
+
+        complete_validation_num = 0
 
         for ex1 in expression_1:    # OR-clauses in expression_1
-            exp_admissible = True
-            expression_match_found = False
+
+            validated_statements = 0
+            breakoff = False
 
             # Statements in OR-clause from expression_2
             for stat2 in ex2:
                 positivity_2 = True     # Statement positivity
+                expression_match_found = False
 
                 # The statement might be under a "not": recover it and change
                 # the statement's positivity
@@ -59,6 +65,104 @@ def check_action_compat(expression_1, expression_2):
                     # If a match between predicates is found but they have
                     # different positivity, return an incompatibility
                     if nstat2 == nstat1 and not (positivity_1 and positivity_2):
+                        breakoff = True
+                        break
+
+                    # If a match is found and the positivities are the same,
+                    # return a compatibility
+                    elif nstat2 == nstat1 and (positivity_1 and positivity_2):
+                        expression_match_found = True
+                        validated_statements += 1
+                        break
+
+                # If a conflict was found, skip the rest of the OR-clause from
+                # expression 1 (the clauses in an OR-clause are all in an AND
+                # relation)
+                if breakoff == True:
+                    break
+
+                # Incompatibilities due to lack of appearance of a statement
+                # from the second precondition in the world of the first
+                # action can only happen when the statement is positive
+                # (due to the closed world assumption)
+                if not positivity_2 and not expression_match_found:
+                    expression_match_found = True
+                    validated_statements += 1
+
+                # If a conflict was found or a positive statement wasn't included
+                # in the world, return an incompatibility
+                if not expression_match_found and positivity_2:
+                    breakoff = True
+                    break
+
+                if not positivity_2 and not expression_match_found:
+                    validated_statements += 1
+
+            if breakoff == True:
+                continue
+
+            if validated_statements == len(ex1):
+                complete_validation_num += 1
+
+
+        or_clause_validation_list[idx] = complete_validation_num
+
+
+    if strict:
+        discrepancy_found = False
+        for validations in or_clause_validation_list:
+            if validation != len(expression_1):
+                discrepancy_found = True
+        return not discrepancy_found
+    else:
+        discrepancy_found = False
+        for validations in or_clause_validation_list:
+            if validations == 0 and len(expression_1) != 0:
+                discrepancy_found = True
+        return not discrepancy_found
+
+    return False
+
+def old_check_action_compat(expression_1, expression_2):
+
+    for ex2 in expression_2:    # OR-clauses in expression_2
+        admissible = False
+
+        for ex1 in expression_1:    # OR-clauses in expression_1
+            exp_admissible = True
+            expression_match_found = False
+
+            validated_params = 0
+
+            # Statements in OR-clause from expression_2
+            for stat2 in ex2:
+                positivity_2 = True     # Statement positivity
+
+                # The statement might be under a "not": recover it and change
+                # the statement's positivity
+                nstat2 = collection_copy(stat2)
+                if nthkey(nstat2) == 'not':
+                    nstat2 = nstat2['not'][0]
+                    positivity_2 = False
+
+                print("N2", nstat2, positivity_2)
+
+                # Statements in OR-clause from expression_1
+                for stat1 in ex1:
+                    positivity_1 = True     # Statement positivity
+
+                    # The statement might be under a "not": recover it and change
+                    # the statement's positivity
+                    nstat1 = collection_copy(stat1)
+                    if nthkey(nstat1) == 'not':
+                        nstat1 = nstat1['not'][0]
+                        positivity_1 = False
+
+                    print("N1", nstat1, positivity_1)
+
+                    # If a match between predicates is found but they have
+                    # different positivity, return an incompatibility
+                    if nstat2 == nstat1 and not (positivity_1 and positivity_2):
                         exp_admissible = False
                         break
 
@@ -66,8 +170,10 @@ def check_action_compat(expression_1, expression_2):
                     # return a compatibility
                     elif nstat2 == nstat1 and (positivity_1 and positivity_2):
                         expression_match_found = True
+                        validated_params += 1
                         print("NN", nstat1, nstat2)
                         break
+
 
                 # Incompatibilities due to lack of appearance of a statement
                 # from the second precondition in the world of the first
@@ -87,8 +193,8 @@ def check_action_compat(expression_1, expression_2):
             if exp_admissible and expression_match_found:
                 admissible = True
 
-        if admissible:
-            return True
+        if not admissible:
+            return False
 
     return False
 

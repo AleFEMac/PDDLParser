@@ -28,6 +28,7 @@ OPRBFIL = PDDLPRB #"problem_cost.pddl"   # problem_output.pddl"
 can_write = True
 can_merge_actions = True
 LENIENT = True
+STRICT = False
 HASCOST = True
 PERMPUN = ['_', '-']
 RESVNAMES = ['action', 'define', 'domain', 'predicates', 'parameter', 'precondition', 'effect']
@@ -951,12 +952,8 @@ def main():
                 replace_params(copy_eff2, inv_parametrization, inv_match)
                 copy_eff2 = toDNF(copy_eff2)
 
-                # Compatibility check: ensure that the post-execution world
-                # and the precondition of the second action don't exclude
-                # each other
-                action_compat = check_action_compat(toDNF(copy_ae), copy_prec2)
-                print(coup[0], coup[1], action_compat)
-                print(toDNF(copy_ae), '\n', copy_prec2, '\n')
+                #TODO: SHOULD WORK NOW
+                action_compat = check_action_compat(toDNF(copy_ae), copy_prec2, STRICT)
                 if not action_compat:
                     continue
 
