@@ -430,28 +430,31 @@ def assemble_DNF(or_clauses):
     return expression
 
 
-# Applies an effect to an existing world
-# prec: non-partitioned DNF
-# eff: partitioned form
-# return: partitioned DNF
+# Applies an effect to a precondition, in order to obtain the state of the world
+# after said application
+# @param prec - list, DNF precondition
+# @param eff - dictionary, binary tree of the effect to apply to the precondition
+# @return - partitioned DNF of the post-effect world
 def apply_effect(prec, eff):
     # Initialize a new list of or-clauses for the new world
     or_clause_list = []
 
     # Copy the effect and differentiate between different predicates under an
-    # AND operator and a single effect clause (effects can't have ORs)
+    # AND operator and a single effect clause (effects can't have ORs), then make
+    # a list of the predicates in the effect
     actual_eff = collection_copy(eff)
     if nthkey(actual_eff) == 'and':
         actual_eff = actual_eff['and']
     else:
         actual_eff = [actual_eff]
 
+    # Loop on every clause on the precondition
     for and_clause in prec:
         and_clause_list = []
 
         eff_copy = collection_copy(actual_eff)
 
-        # Cicle on all elements of the AND clause (predicates)
+        # Loop on all elements of the AND clause (predicates)
         for prec_clause in and_clause:
 
             # Take the name of the predicate and its parameters
@@ -465,22 +468,28 @@ def apply_effect(prec, eff):
                 prec_clause_operator = nthkey(prec_clause_content[0])   #list(prec_clause_content[0].keys())[0]
                 prec_clause_content = prec_clause_content[0][prec_clause_operator]
 
+            # Loop over the predicates of the effect
             for eff_clause in actual_eff:
 
                 eff_clause_operator = nthkey(eff_clause)    #list(eff_clause.keys())[0]
                 eff_clause_content = eff_clause[eff_clause_operator]
 
+                # The effect predicate might be inside a NOT operator
                 if eff_clause_operator == 'not':
                     eff_clause_operator = nthkey(eff_clause_content[0]) #list(eff_clause_content[0].keys())[0]
                     eff_clause_content = eff_clause_content[0][eff_clause_operator]
 
+                # If the predicate is already in the precondition, overwrite it
+                # with the effect one, then remove it from the list of effect
+                # predicates to add
                 if eff_clause_operator == prec_clause_operator and eff_clause_content == prec_clause_content:
                     and_clause_list.append(eff_clause)
                     eff_copy.remove(eff_clause)
                     added_effect = True
                     break
 
-
+            # If the effect predicate wasn't found in the precondiion, add it
+            # now to the final world
             if not added_effect:
                 and_clause_list.append(prec_clause)
 
@@ -494,6 +503,7 @@ def apply_effect(prec, eff):
         else:
             or_clause_list.append(and_clause_list)
 
+    # Format the result into a binary tree
     if len(or_clause_list) > 1:
         return {'or':or_clause_list}
     elif len(or_clause_list) == 1:
@@ -508,6 +518,12 @@ def apply_effect(prec, eff):
         return {}
 
 
+# Function to match a parameter to its type predicates (predicates introduced
+# by the characters 'type_'); they act as a sort of "class" to identify which
+# kind of "object" param is. Used to merge actions.
+# @param param - string, parameter to associate to type predicates
+# @param expression - dictionary, (DNF) binary tree of a boolean formula
+# @return - set, the list of individual type predicates param can be matched with
 def associate_parameter(param, expression):
 
     # We don't need the "number" of associations a parameter has, so we use
@@ -521,30 +537,45 @@ def associate_parameter(param, expression):
     operator = nthkey(expression)           # Header of the level
     level = expression[operator]            # Arguments of the level parameter
 
-
     # Iterate over all arguments of the level parameter
     for stat in level:
 
         if type(stat) != dict:              # Parameter case
+            # If the operator found is a type predicate, save it
             if stat == c_param and operator.split('_')[0] == "type":
                 associations.add(operator)
                 break
         else:                                           # Next level
-            ret = associate_parameter(param, stat)      # Recursive step
-            associations.update(ret)
+            # Only go in the recursive step if the operator isn't a NOT
+            # (since the expression is in DNF before the recursion starts,
+            # the NOT operator can only contain a predicate: if it is a type
+            # predicate, the parameter shouldn't be classified in that way
+            # anyways)
+            if nthkey(stat) != "not":
+                ret = associate_parameter(param, stat)      # Recursive step
+                associations.update(ret)
 
     return associations
 
-# Wrapper to iterate associate_parameter over multiple parameters
+# Wrapper to iterate associate_parameter over multiple parameters; it is for all
+# intents and purposes its "initialization".
+# @param param - string, parameter to associate to type predicates
+# @param expression - dictionary, DNF binary tree of a boolean formula
+# @return - dictionary, the dictionary linking every parameter to its associated
+#   type predicates
 def associate_parameters(params, expression):
     associations = {}
 
+    # Perform the associate_parameter function on every predicate
     for param in params:
         ret = associate_parameter(param, expression)
         associations[param] = ret
 
     return associations
 
+# The function takes the possible parameters intersections (parameters having
+# the same type predicates) and only selects the ones which link the most of them
+# @param inters - list, list of parameters matches
 def pick_max_matches(inters):
 
     threshold = 0
@@ -558,8 +589,15 @@ def pick_max_matches(inters):
             out = [i]
     return out
 
+
 # Replace parameters of an action with generic 'par_n' names, which will be
 # used in the final combined action
+# @param level - dictionary, the current node of the binary tree
+# @param par_maps - dictionary, maps each parameter to a generic one
+# @param middlemen - dictionary, instead of creating a separate par_maps for
+#   parameters of the second action in a merging, the mapping from parameters
+#   of the second action and parameters of the first can be fed to be used as
+#   middleman
 def replace_params(level, par_maps, middlemen={}):
 
     assert type(level) == dict
@@ -570,23 +608,32 @@ def replace_params(level, par_maps, middlemen={}):
     operator = nthkey(level)    #list(level.keys())[0]
     content = level[operator]
 
+    # Operator, recursive step
     if operator in ['or', 'and', 'not']:
         for i in content:
             replace_params(i, par_maps, middlemen)
-    else:
+    else:   # Predicate found
         new_content = []
         for i in content:
+            # par_maps saves parameters without the '?'
             if i[1:] in par_maps:
                 new_content.append(str('?' + str(par_maps[i[1:]])))
-            else:
+            else:   # Middleman case
                 new_content.append(str('?' + str(par_maps[middlemen[i[1:]]])))
         level[operator] = new_content
         return
 
 # Checks if the parameters expressed by the precondition/effect of an action
 # are actually defined
+# @param level - dictionary, current node of the binary tree
+# @param params - list, parameters defined by the action
+# @param predics - dictionary, all of the domain predicates
+# @return 0 - boolean, whether an error happened or not
+# @return 1 - integer, code of the error
+# @return 2 - what caused the error
 def action_cons_check(level, params, predics):
 
+    # Recursive operation
     def action_cons_check_in(level, params, predics):
 
         if len(level) == 0:
@@ -595,26 +642,23 @@ def action_cons_check(level, params, predics):
         head = nthkey(level)    #list(level.keys())[0]
         body = level[head]
 
-        if head not in ['and', 'or', 'not']:
+        if head not in ['and', 'or', 'not']:    # Predicate case
             if head not in predics:
-                return False, 1, (head)
+                return False, 1, (head) # Predicate not defined in the domain
             elif head in predics and len(predics[head]) != len(body):
+                # Wrong amount of parameters wrt what was defined in the domain
                 return False, 2, (head, str(len(predics[head])), str(len(body)))
             else:
                 for par in body:
-                    if par[1:] not in params:
+                    if par[1:] not in params: # Parameter not defined in domain
                         return False, 3, (head, par[1:])
         else:
-            for subc in body:
+            for subc in body:   # Recursive step
                 ret, rerr, rpar = action_cons_check_in(subc, params, predics)
                 if not ret:
                     return False, rerr, rpar
 
         return True, None, None
-
-# =============================================================================
-#     assert len(params) > 0
-# =============================================================================
 
 
     partitioned_level = partition_recursively(level)
@@ -622,28 +666,33 @@ def action_cons_check(level, params, predics):
 
     return action_cons_check_in(dnf_level, params, predics)
 
-# =============================================================================
-# Check action preconditions without using the boolean module
-# =============================================================================
+# Function to check that a formula from an action is logcally correct; done by
+# hand since the 'boolean' module doesn't seem to work correctly.
+# @param act - structure, the action the formula belongs to
+# @param formula - string, name of the formula to analyze
+# @return - boolean, whether no errors were found or not
 def check_action_formula(act, formula):
 
     if formula not in act:
-        if formula == "precondition":
+        if formula == "precondition":   # An action may have no precondition
             return True
-        else:
+        else:           # An effect must be present though
             return False
 
-    prec = collection_copy(act[formula])
-    prec_dnf = toDNF(partition_recursively(prec, False))
+    formula_copy = collection_copy(act[formula])
+    formula_dnf = toDNF(partition_recursively(formula_copy, False))
 
-    if len(prec_dnf) == 0:
+    if len(formula_dnf) == 0:  # Formula is empty
         return True
 
     acceptable = True
 
-    for or_clause in prec_dnf:
-        memory = []
+    # Loop over OR-clauses
+    for or_clause in formula_dnf:
+        memory = [] # Remember the predicates found, with parameters and positivity
 
+        # Loop over predicates in OR-clause (Or-clauses only contain NOT
+        # operators and predicates)
         for predicate in or_clause:
             struc = ()
             pos = True
@@ -651,6 +700,7 @@ def check_action_formula(act, formula):
             head = nthkey(predicate)
             body = predicate[head]
 
+            # Predicate might be
             if head == 'not':
                 pos = False
 
@@ -659,17 +709,30 @@ def check_action_formula(act, formula):
 
             struc = (head, body, pos)
 
+            # If the predicate was found with the same parameters and opposite
+            # positivity, return an error
             if (head, body, not pos) in memory:
                 acceptable = False
                 break
             else:
                 memory.append(struc)
 
+        # If at least one OR-clause is positive, the formula is consistent
+        # (since they are tied by an OR relation, only one of them has to be
+        # be positive for the whole formula to be)
         if acceptable:
             return True
 
     return False
 
+# Function to check whether there is no need to merge two actions.
+# @param act1 - dictionary, first action
+# @param act2 - dictionary, second action
+# @param param_mapping, dictionary, maps parameters of action 1 to generic
+#   parameters
+# @param param_match, dictionary, matches parameters of action 2 to parameters of
+#   action 1
+# @return - boolean, True if the action merging is not pointless, False otherwise
 def check_pointlessness(act1, act2, param_mapping, param_match):
 
     # Copy the actions to avoid side-effect related problems
@@ -695,8 +758,8 @@ def check_pointlessness(act1, act2, param_mapping, param_match):
     pdnf_effect_act2 = assemble_DNF(dnf_effect_act2)
 
     # Replace all parameters with their general version
-    replace_params(pdnf_precondition_act1, param_mapping, param_match)
-    replace_params(pdnf_effect_act1, param_mapping, param_match)
+    replace_params(pdnf_precondition_act1, param_mapping) #, param_match)
+    replace_params(pdnf_effect_act1, param_mapping) #, param_match)
     replace_params(pdnf_precondition_act2, param_mapping, param_match)
     replace_params(pdnf_effect_act2, param_mapping, param_match)
 
@@ -710,8 +773,8 @@ def check_pointlessness(act1, act2, param_mapping, param_match):
     world_2_dnf = toDNF(world_2)
 
     # Check if the end results of the merging of the 2 actions brings the world
-    # 2 back to either world 0 (action 1 precondition) or to world 1, making
-    # the merged action pointless
+    # 2 back to either world 0 (action 1 precondition) or to world 1 (application
+    # of effect 1 to world 0), making the merged action pointless
     world_0_independence = False
     world_1_independence = False
 
@@ -721,18 +784,21 @@ def check_pointlessness(act1, act2, param_mapping, param_match):
 
         clause_not_present = False
 
+        # World 0 OR-clauses
         for or_clause_0 in dnf_precondition_act1:
 
             if len(or_clause_2) != len(or_clause_0):
                 clause_not_present = True
                 break
 
+            # Predicates in world 2
             for statement_2 in or_clause_2:
 
                 statement_found = False
 
                 positivity_2 = True
 
+                # Save predicate, parameters and positivity of statement
                 statement_2_head = nthkey(statement_2)
                 statement_2_body = statement_2[statement_2_head]
 
@@ -743,10 +809,12 @@ def check_pointlessness(act1, act2, param_mapping, param_match):
 
                 final_statement_2 = {statement_2_head: statement_2_body}
 
+                # Predicates in world 0
                 for statement_0 in or_clause_0:
 
                     positivity_0 = True
 
+                    # Save predicate, parameters and positivity of statement
                     statement_0_head = nthkey(statement_0)
                     statement_0_body = statement_0[statement_0_head]
 
@@ -761,6 +829,7 @@ def check_pointlessness(act1, act2, param_mapping, param_match):
                     if final_statement_2 == final_statement_0 and (positivity_0 == positivity_2):
                         statement_found = True
 
+                # Any clause not present ensure not poinlessness
                 if not statement_found:
                     clause_not_present = True
                     break
@@ -778,18 +847,21 @@ def check_pointlessness(act1, act2, param_mapping, param_match):
 
         clause_not_present = False
 
+        # Loop over OR-clauses of world 1
         for or_clause_1 in dnf_precondition_act1:
 
             if len(or_clause_2) != len(or_clause_1):
                 clause_not_present = True
                 break
 
+            # Predicates in world 2
             for statement_2 in or_clause_2:
 
                 statement_found = False
 
                 positivity_2 = True
 
+                # Save predicate, parameters and positivity of statement
                 statement_2_head = nthkey(statement_2)
                 statement_2_body = statement_2[statement_2_head]
 
@@ -800,10 +872,12 @@ def check_pointlessness(act1, act2, param_mapping, param_match):
 
                 final_statement_2 = {statement_2_head: statement_2_body}
 
+                # Predicates in world 1
                 for statement_1 in or_clause_1:
 
                     positivity_1 = True
 
+                    # Save predicate, parameters and positivity of statement
                     statement_1_head = nthkey(statement_1)
                     statement_1_body = statement_1[statement_1_head]
 
@@ -818,6 +892,7 @@ def check_pointlessness(act1, act2, param_mapping, param_match):
                     if final_statement_2 == final_statement_1 and (positivity_1 == positivity_2):
                         statement_found = True
 
+                # Any clause not present ensure not poinlessness
                 if not statement_found:
                     clause_not_present = True
                     break
